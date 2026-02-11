@@ -4,6 +4,7 @@ Hi! I'm your first Markdown file in **StackEdit**. If you want to learn about St
 
 # Project File Tree
 
+```
 pgvector/
 ├── Dockerfile
 ├── env.sh
@@ -16,7 +17,7 @@ pgvector/
 │   └── 006_seed.sql
 ├── postgres.conf
 └── README.md
-
+```
 
 
 ## Build
