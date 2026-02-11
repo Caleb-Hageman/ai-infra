@@ -81,21 +81,27 @@ One job per upload (or per reprocess).
 | `created_at`      | timestamp |                                                      |
 
 ### `document_chunks`
-Stores chunk metadata and the key that links to the vector DB (citation backbone).
+Stores chunk text, embedding, and positional metadata. With pgvector everything lives in one table — no external vector DB needed.
 
-| Column         | Type      | Notes                            |
-|----------------|-----------|----------------------------------|
-| `id`           | uuid      | PK                               |
-| `document_id`  | uuid      | FK → `documents.id`              |
-| `chunk_index`  | int       | 0…n ordering within the document |
-| `vector_id`    | text      | ID stored in the vector DB       |
-| `page_start`   | int       | Nullable                         |
-| `page_end`     | int       | Nullable                         |
-| `char_start`   | int       | Nullable                         |
-| `char_end`     | int       | Nullable                         |
-| `text_preview` | text      | Nullable — short snippet for debugging |
-| `token_count`  | int       | Nullable — useful for context-window budgeting |
-| `created_at`   | timestamp |                                  |
+| Column         | Type         | Notes                                  |
+|----------------|--------------|----------------------------------------|
+| `id`           | uuid         | PK                                     |
+| `document_id`  | uuid         | FK → `documents.id`                    |
+| `chunk_index`  | int          | 0…n ordering within the document       |
+| `content`      | text         | Full chunk text (used for LLM context) |
+| `embedding`    | vector(1536) | pgvector column — dimensions match your embedding model |
+| `page_start`   | int          | Nullable                               |
+| `page_end`     | int          | Nullable                               |
+| `char_start`   | int          | Nullable                               |
+| `char_end`     | int          | Nullable                               |
+| `token_count`  | int          | Nullable — useful for context-window budgeting |
+| `created_at`   | timestamp    |                                        |
+
+> **Index:** Create an HNSW index on `embedding` for fast approximate nearest-neighbor search:
+> ```sql
+> CREATE INDEX ON document_chunks
+>   USING hnsw (embedding vector_cosine_ops);
+> ```
 
 ### `query_logs`
 Audit + metrics logging. 
