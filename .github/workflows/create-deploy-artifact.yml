@@ -1,4 +1,5 @@
-name: Deploy API - ${{ github.sha }}
+name: Create and deploy artifact to Cloud Run
+run-name: Deploying commit ${{ github.sha }} by @${{ github.actor }}
 
 on:
   push:
