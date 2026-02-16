@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${GCP_KEY_FILE:-./indigo-bedrock-487015-g2-bfe590860b1d.json}:/app/gcp-key.json:ro
+      - ./app:/app/app
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
