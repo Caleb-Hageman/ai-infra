@@ -20,7 +20,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Docker metadata
         id: meta
@@ -68,4 +68,5 @@ jobs:
           image: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           service: ${{ env.SERVICE_NAME }} 
           region: ${{ env.REGION }}
+          flags: --service-account=${{secrets.CLOUD_RUN_SERVICE_ACCOUNT}}
 
