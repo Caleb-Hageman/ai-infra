@@ -4,8 +4,6 @@ run-name: Deploying commit ${{ github.sha }} by @${{ github.actor }}
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 env:
