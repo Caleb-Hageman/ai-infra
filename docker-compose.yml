@@ -1,6 +1,24 @@
 services:
+  db:
+    build: ./pgvector
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=rag_db
+      - POSTGRES_USER=rag_user
+      - POSTGRES_PASSWORD=rag_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
     ports:
       - "8000:8000"
     volumes:
@@ -9,3 +27,10 @@ services:
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_password@db:5432/rag_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
