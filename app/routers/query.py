@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_api_key
 from app.db import get_session
-from app.models import Document, DocumentChunk
+from app.models import ApiKey, Document, DocumentChunk
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -41,6 +42,7 @@ class QueryResponse(BaseModel):
 async def similarity_search(
     project_id: UUID,
     body: QueryRequest,
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
     if len(body.embedding) != 1536:

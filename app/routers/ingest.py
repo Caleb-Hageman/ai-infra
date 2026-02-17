@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_api_key
 from app.db import get_session
-from app.models import Document, DocumentChunk, DocumentSourceType, IngestionJob
+from app.models import ApiKey, Document, DocumentChunk, DocumentSourceType, IngestionJob
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -62,8 +63,11 @@ async def upload_file(
     team_id: UUID,
     project_id: UUID,
     file: UploadFile,
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
+    if current_key.team_id != team_id:
+        raise HTTPException(403, "API key does not belong to this team")
     try:
         from app.services import gcs
 
@@ -95,8 +99,11 @@ async def ingest_chunks(
     team_id: UUID,
     project_id: UUID,
     body: IngestRequest,
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
+    if current_key.team_id != team_id:
+        raise HTTPException(403, "API key does not belong to this team")
     doc = Document(
         team_id=team_id,
         project_id=project_id,
@@ -136,8 +143,13 @@ async def ingest_chunks(
 
 @router.get("/{team_id}/{project_id}/documents", response_model=list[DocumentOut])
 async def list_documents(
-    team_id: UUID, project_id: UUID, session: AsyncSession = Depends(get_session)
+    team_id: UUID,
+    project_id: UUID,
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
 ):
+    if current_key.team_id != team_id:
+        raise HTTPException(403, "API key does not belong to this team")
     result = await session.execute(
         select(Document).where(
             Document.team_id == team_id, Document.project_id == project_id
@@ -147,7 +159,11 @@ async def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=DocumentOut)
-async def get_document(document_id: UUID, session: AsyncSession = Depends(get_session)):
+async def get_document(
+    document_id: UUID,
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
+):
     doc = await session.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "Document not found")
@@ -155,7 +171,11 @@ async def get_document(document_id: UUID, session: AsyncSession = Depends(get_se
 
 
 @router.get("/documents/{document_id}/chunks", response_model=list[ChunkOut])
-async def list_chunks(document_id: UUID, session: AsyncSession = Depends(get_session)):
+async def list_chunks(
+    document_id: UUID,
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(DocumentChunk)
         .where(DocumentChunk.document_id == document_id)
