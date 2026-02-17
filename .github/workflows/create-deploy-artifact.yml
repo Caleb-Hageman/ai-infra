@@ -68,5 +68,5 @@ jobs:
           image: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           service: ${{ env.SERVICE_NAME }} 
           region: ${{ env.REGION }}
-          flags: --service-account=${{secrets.WIF_SERVICE_ACCOUNT}}
+          flags: --service-account=${{secrets.CLOUD_RUN_SERVICE_ACCOUNT}}
 
