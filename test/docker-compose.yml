@@ -1,0 +1,42 @@
+services:
+
+  db:
+    image: ankane/pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ai_infra2026     
+      POSTGRES_DB: rag_db
+    ports:
+      - "5432:5432"                        # remove in production
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: rag_db
+      DB_USER: postgres
+      DB_PASSWORD: ai_infra2026           # ← must match db service above
+      DB_TABLE: document_embeddings
+      EMBEDDING_MODEL: mixedbread-ai/mxbai-embed-large-v1
+      DEVICE: cpu                          # change to cuda if you have a GPU
+    depends_on:
+      db:
+        condition: service_healthy         # wait for postgres to be ready
+    volumes:
+      - model_cache:/root/.cache          # persist downloaded model weights
+
+volumes:
+  pgdata:
+  model_cache:
