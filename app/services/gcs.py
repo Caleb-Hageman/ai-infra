@@ -5,12 +5,11 @@ from google.cloud.exceptions import GoogleCloudError
 
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
 
-if not BUCKET_NAME:
-    raise RuntimeError("GCS_BUCKET_NAME environment variable is not set.")
-
 _client = None
 
 def get_bucket():
+    if not BUCKET_NAME:
+        raise RuntimeError("GCS_BUCKET_NAME environment variable is not set.")
     global _client
     if _client is None:
         try:
@@ -18,7 +17,7 @@ def get_bucket():
         except Exception as e:
             print(f"Error initializing GCS Client: {e}")
             raise e
-            
+
     return _client.bucket(BUCKET_NAME)
 
 def upload_file_stream(file_obj, destination_blob_name: str, content_type: str = "application/pdf") -> str:
