@@ -101,11 +101,11 @@ async def ingest_chunks(
     team_id: UUID,
     project_id: UUID,
     body: IngestRequest,
-    #current_key: ApiKey = Depends(get_api_key),
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    #if current_key.team_id != team_id:
-    #    raise HTTPException(403, "API key does not belong to this team")
+    if current_key.team_id != team_id:
+        raise HTTPException(403, "API key does not belong to this team")
 
     # 1️⃣ Create document
     doc = Document(
@@ -166,11 +166,11 @@ async def ingest_chunks(
 async def list_documents(
     team_id: UUID,
     project_id: UUID,
-    #current_key: ApiKey = Depends(get_api_key),
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    #if current_key.team_id != team_id:
-    #    raise HTTPException(403, "API key does not belong to this team")
+    if current_key.team_id != team_id:
+        raise HTTPException(403, "API key does not belong to this team")
     result = await session.execute(
         select(Document).where(
             Document.team_id == team_id, Document.project_id == project_id
@@ -182,7 +182,7 @@ async def list_documents(
 @router.get("/documents/{document_id}", response_model=DocumentOut)
 async def get_document(
     document_id: UUID,
-    #current_key: ApiKey = Depends(get_api_key),
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
     doc = await session.get(Document, document_id)
@@ -194,7 +194,7 @@ async def get_document(
 @router.get("/documents/{document_id}/chunks", response_model=list[ChunkOut])
 async def list_chunks(
     document_id: UUID,
-    #current_key: ApiKey = Depends(get_api_key),
+    current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
