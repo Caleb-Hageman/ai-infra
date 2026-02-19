@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_api_key
 from app.db import get_session
-from app.models import ApiKey, Document, DocumentChunk, DocumentSourceType, IngestionJob
+from app.models import ApiKey, Document, DocumentChunk, DocumentSourceType, IngestionJob, DocumentStatus
+from app.services.insert import insert_document_chunks 
+
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -104,6 +106,8 @@ async def ingest_chunks(
 ):
     if current_key.team_id != team_id:
         raise HTTPException(403, "API key does not belong to this team")
+
+    # 1️⃣ Create document
     doc = Document(
         team_id=team_id,
         project_id=project_id,
@@ -111,32 +115,49 @@ async def ingest_chunks(
         source_type=DocumentSourceType.manual,
     )
     session.add(doc)
-    await session.flush()
+    await session.flush()  # generate doc.id
 
-    for chunk in body.chunks:
-        session.add(
-            DocumentChunk(
-                document_id=doc.id,
-                chunk_index=chunk.chunk_index,
-                content=chunk.content,
-                embedding=chunk.embedding,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                token_count=chunk.token_count,
-            )
+    # 2️⃣ Prepare chunk dicts for service
+    chunk_payload = [
+        {
+            "chunk_index": c.chunk_index,
+            "content": c.content,
+            "embedding": c.embedding,
+            "page_start": c.page_start,
+            "page_end": c.page_end,
+            "token_count": c.token_count,
+        }
+        for c in body.chunks
+    ]
+
+    # 3️⃣ Call sync helper safely inside AsyncSession
+    await session.run_sync(
+        lambda sync_session: insert_document_chunks(
+            sync_session,
+            document_id=doc.id,
+            chunks=chunk_payload,
+            commit=False,  # we control commit here
         )
+    )
 
+    # 4️⃣ Create ingestion job
     job = IngestionJob(
         document_id=doc.id,
         chunks_created=len(body.chunks),
     )
     session.add(job)
 
-    doc.status = "ready" if all(c.embedding for c in body.chunks) else "processing"
+    # 5️⃣ Update document status properly (enum-safe)
+    doc.status = (
+        DocumentStatus.ready
+        if all(c.embedding for c in body.chunks)
+        else DocumentStatus.processing
+    )
+
     await session.commit()
     await session.refresh(doc)
-    return doc
 
+    return doc
 
 # ── Read endpoints ───────────────────────────────────────────────────────────
 
