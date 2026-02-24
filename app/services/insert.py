@@ -1,7 +1,7 @@
 from typing import Iterable, List, Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.models import DocumentChunk
@@ -10,8 +10,8 @@ from app.models import DocumentChunk
 EMBEDDING_DIM = 1536
 
 
-def insert_document_chunks(
-    db: Session,
+async def insert_document_chunks(
+    db: AsyncSession,
     *,
     document_id: UUID,
     chunks: Iterable[dict],
@@ -62,11 +62,11 @@ def insert_document_chunks(
 
     try:
         db.add_all(chunk_objects)
-        db.flush()  # ensures IDs are generated
+        await db.flush()  # ensures IDs are generated
         if commit:
-            db.commit()
+            await db.commit()
     except IntegrityError:
-        db.rollback()
+        await db.rollback()
         raise
 
     return [chunk.id for chunk in chunk_objects]

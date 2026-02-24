@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Document, DocumentChunk, DocumentSourceType, IngestionJob
 from app.schemas.document import IngestRequest
 
+from app.services import insert
+
 async def create_uploaded_document(
     session: AsyncSession, 
     team_id: UUID, 
@@ -41,18 +43,24 @@ async def process_manual_chunks(
     session.add(doc)
     await session.flush()
 
-    for chunk in body.chunks:
-        session.add(
-            DocumentChunk(
-                document_id=doc.id,
-                chunk_index=chunk.chunk_index,
-                content=chunk.content,
-                embedding=chunk.embedding,
-                page_start=chunk.page_start,
-                page_end=chunk.page_end,
-                token_count=chunk.token_count,
-            )
-        )
+    chunk_payload = [
+        {
+            "chunk_index": c.chunk_index,
+            "content": c.content,
+            "embedding": c.embedding,
+            "page_start": c.page_start,
+            "page_end": c.page_end,
+            "token_count": c.token_count,
+        }
+        for c in body.chunks
+    ]
+
+    await insert.insert_document_chunks(
+        session,
+        document_id=doc.id,
+        chunks=chunk_payload,
+        commit=False
+    )
 
     job = IngestionJob(
         document_id=doc.id,
