@@ -5,10 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_api_key
 from app.db import get_session
-from app.models import ApiKey
+
+from app.models import ApiKey 
 
 from app.schemas.document import DocumentOut, IngestRequest
 from app.services import gcs, document
+from app.services.insert import insert_document_chunks
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -38,7 +40,7 @@ async def upload_file(
     return doc
 
 
-@router.post("/{team_id}/{project_id}/chunks", response_model=DocumentOut, status_code=201)
+@router.post("/{project_id}/chunks", response_model=DocumentOut, status_code=201)
 async def ingest_chunks(
     project_id: UUID,
     body: IngestRequest,

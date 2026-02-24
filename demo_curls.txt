@@ -1,0 +1,19 @@
+
+
+
+
+
+#Post Document Chunks
+curl -X POST "http://localhost:8000/ingest/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000002/chunks"   -H "Content-Type: application/json"   --data-binary @demo_chunks.json
+
+
+
+#List Documents
+curl -X GET "http://localhost:8000/ingest/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000002/documents" \
+     -H "Content-Type: application/json"
+
+
+
+#Retrieve Chunks
+curl -X GET "http://localhost:8000/ingest/documents/8d4ba51f-53aa-4663-868f-286cd70a7999/chunks" \      
+	-H "Content-Type: application/json"
