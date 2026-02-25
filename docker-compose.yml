@@ -27,7 +27,11 @@ services:
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
-      - DATABASE_URL=postgresql+asyncpg://rag_user:rag_password@db:5432/rag_db
+      - POSTGRES_USER=rag_user
+      - POSTGRES_PASSWORD=rag_password
+      - POSTGRES_DB=rag_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_HOST=db
     depends_on:
       db:
         condition: service_healthy
