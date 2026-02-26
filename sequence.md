@@ -1,23 +1,19 @@
 ```mermaid
     sequenceDiagram
     participant FE as Frontend (Product Team)
+    participant GW as GCP API Gateway
     participant API as FastAPI (Cloud Run)
-    participant R as Redis (Rate Limit & Memory)
     participant DB as PostgreSQL + PGVector (e2-micro)
     participant GCS as Google Cloud Storage
     participant GPU as vLLM (Cloud Run GPU)
 
-    FE->>API: POST /chat (Prompt + API_Key)
-    
-    API->>R: INCR team_rate_limit (using Team_ID)
-    R-->>API: Status (200 or 429)
+    FE->>GW: POST /chat (Prompt + API_Key)
 
     alt Over Limit
-        API-->>FE: 429 Too Many Requests
+        GW-->>FE: 429 Too Many Requests
     else Within Limit
-        API->>R: GET session_history (Short-term)
-        R-->>API: Recent Chat Context
-
+        GW->>API: Forward Request (Authorized)
+        
         rect rgba(240, 240, 240, 0.1)
             API->>API: Generate Embedding
             
@@ -28,15 +24,14 @@
                 API->>GCS: Request Pre-signed URL
                 GCS-->>API: Source Citation URL
             and
-                API->>GPU: User Prompt + PGVector Chunks + Redis Context
+                API->>GPU: Stream Prompt + Context
                 loop Token Stream
-                    GPU-->>API: Text Chunk
+                    GPU-->>API: Stream Text Chunk
                     API-->>FE: Stream to UI
                 end
             end
             
             API->>DB: Save Full Prompt/Response (History)
-            API->>R: Update Session Memory
         end
         
         API-->>FE: [Stream Done] + Final Citation URL
