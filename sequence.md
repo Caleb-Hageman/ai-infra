@@ -28,7 +28,7 @@
                 API->>GCS: Request Pre-signed URL
                 GCS-->>API: Source Citation URL
             and
-                API->>GPU: Stream Prompt + Context
+                API->>GPU: User Prompt + PGVector Chunks + Redis Context
                 loop Token Stream
                     GPU-->>API: Text Chunk
                     API-->>FE: Stream to UI
