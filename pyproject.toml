@@ -12,4 +12,5 @@ dependencies = [
     "asyncpg>=0.30",
     "pgvector>=0.3",
     "alembic>=1.15",
+    "httpx>=0.27.0",
 ]

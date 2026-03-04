@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -15,6 +15,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "fastapi", extra = ["standard"] },
     { name = "google-cloud-storage" },
+    { name = "httpx" },
     { name = "pgvector" },
     { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
@@ -26,6 +27,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", extras = ["standard"] },
     { name = "google-cloud-storage", specifier = ">=3.9.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "python-multipart", specifier = ">=0.0.22" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
