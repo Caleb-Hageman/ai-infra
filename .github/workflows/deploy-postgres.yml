@@ -63,18 +63,17 @@ jobs:
 
       - name: SSH and Update VM via IAP
         run: |
+          gcloud compute ssh ${{ env.VM_NAME }} --zone ${{ env.ZONE }} --tunnel-through-iap --command "true" || true
+          
+          sleep 30
+
           gcloud compute ssh ${{ env.VM_NAME }} \
             --zone ${{ env.ZONE }} \
             --tunnel-through-iap \
             --ssh-flag="-o StrictHostKeyChecking=no" \
             --command "
-              # Authenticate Docker on the VM using the VM's service account
               gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
-              
-              # Pull the new image
               docker pull ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-              
-              # Restart the container
               docker stop pg-vector-db || true
               docker rm pg-vector-db || true
               docker run -d \
@@ -86,6 +85,6 @@ jobs:
                 -p 5432:5432 \
                 -v pg_data:/var/lib/postgresql/data \
                 ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
-
+              
                 docker image prune -af
             "
