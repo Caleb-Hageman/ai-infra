@@ -1,0 +1,26 @@
+name: Deploy vLLM
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/cloudrun-deploy.yml
+    with:
+      service_name: llama3-vllm
+      image_name: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/api-registry/vllm
+      dockerfile: Dockerfile
+      deploy_flags: >
+        --service-account=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
+        --memory=32Gi
+        --cpu=8
+        --gpu=1
+        --gpu-type=nvidia-l4
+        --execution-environment=gen2
+        --no-cpu-throttling
+        --no-gpu-zonal-redundancy
+        --timeout=3600
+        --concurrency=8
+        --min-instances=0
+        --max-instances=1
+      env_vars: |
+        HUGGING_FACE_HUB_TOKEN=${{ secrets.HF_TOKEN }}
