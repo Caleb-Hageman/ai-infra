@@ -32,6 +32,10 @@ on:
       GCS_BUCKET_NAME:
         required: false
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

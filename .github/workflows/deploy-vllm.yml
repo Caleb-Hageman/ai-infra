@@ -2,6 +2,10 @@ name: Deploy vLLM
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     uses: ./.github/workflows/cloudrun-deploy.yml
