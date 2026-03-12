@@ -6,7 +6,7 @@ on:
       service_name:
         required: true
         type: string
-      image_name:
+      image_repo:
         required: true
         type: string
       dockerfile:
@@ -18,21 +18,25 @@ on:
       env_vars:
         required: false
         type: string
-      secrets:
-        GCP_PROJECT:
-          required: true
-        WIF_PROVIDER:
-          required: true
-        WIF_SERVICE_ACCOUNT:
-          required: true
-
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
-  REGION: us-east1
+    secrets:
+      GCP_PROJECT:
+        required: true
+      WIF_PROVIDER:
+        required: true
+      WIF_SERVICE_ACCOUNT:
+        required: true
+      CLOUD_RUN_SERVICE_ACCOUNT:
+        required: false
+      HF_TOKEN:
+        required: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+      REGION: us-east1
 
     permissions:
       id-token: write
@@ -45,7 +49,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.image_name }}
+          images: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.image_repo }}
           tags: |
             type=sha
             type=raw,value=latest
@@ -83,7 +87,13 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ inputs.service_name }}
-          image: ${{ inputs.image_name }}:${{ steps.meta.outputs.version }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.image_repo }}:${{ steps.meta.outputs.version }}
           region: ${{ env.REGION }}
-          flags: ${{ inputs.deploy_flags }}
-          env_vars: ${{ inputs.env_vars }}
+          
+          flags: >
+            ${{ inputs.deploy_flags }}
+            ${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT != '' && format('--service-account={0}', secrets.CLOUD_RUN_SERVICE_ACCOUNT) || '' }}
+            
+          env_vars: |
+            ${{ inputs.env_vars }}
+            ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
