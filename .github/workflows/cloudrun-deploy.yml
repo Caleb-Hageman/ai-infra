@@ -18,6 +18,13 @@ on:
       env_vars:
         required: false
         type: string
+      secrets:
+        GCP_PROJECT:
+          required: true
+        WIF_PROVIDER:
+          required: true
+        WIF_SERVICE_ACCOUNT:
+          required: true
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT }}
