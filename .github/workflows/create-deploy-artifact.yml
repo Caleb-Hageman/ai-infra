@@ -14,3 +14,4 @@ jobs:
         --service-account=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
       env_vars: |
         GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}
+    secrets: inherit

@@ -24,3 +24,4 @@ jobs:
         --max-instances=1
       env_vars: |
         HF_TOKEN=${{ secrets.HF_TOKEN }}
+    secrets: inherit
