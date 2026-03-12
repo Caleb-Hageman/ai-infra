@@ -7,10 +7,9 @@ jobs:
     uses: ./.github/workflows/cloudrun-deploy.yml
     with:
       service_name: llama3-vllm
-      image_name: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/api-registry/vllm
+      image_repo: api-registry/vllm
       dockerfile: Dockerfile.vllm
       deploy_flags: >
-        --service-account=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
         --memory=32Gi
         --cpu=8
         --gpu=1
@@ -22,7 +21,4 @@ jobs:
         --concurrency=8
         --min-instances=0
         --max-instances=1
-      env_vars: |
-        HF_TOKEN=${{ secrets.HF_TOKEN }}
-      secrets: inherit
-
+    secrets: inherit

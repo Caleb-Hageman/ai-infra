@@ -8,10 +8,6 @@ jobs:
     uses: ./.github/workflows/cloudrun-deploy.yml
     with:
       service_name: api-service
-      image_name: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/api-registry/api
+      image_repo: api-registry/api
       dockerfile: Dockerfile.prod
-      deploy_flags: >
-        --service-account=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
-      env_vars: |
-        GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}
     secrets: inherit

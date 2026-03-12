@@ -29,6 +29,8 @@ on:
         required: false
       HF_TOKEN:
         required: false
+      GCS_BUCKET_NAME:
+        required: false
 
 jobs:
   deploy:
@@ -97,3 +99,4 @@ jobs:
           env_vars: |
             ${{ inputs.env_vars }}
             ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
+            ${{ secrets.GCS_BUCKET_NAME != '' && format('GCS_BUCKET_NAME={0}', secrets.GCS_BUCKET_NAME) || '' }}
