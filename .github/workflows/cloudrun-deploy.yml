@@ -18,6 +18,10 @@ on:
       env_vars:
         required: false
         type: string
+      deploy_region:
+        required: false
+        type: string
+        default: 'us-east1'
     secrets:
       GCP_PROJECT:
         required: true
@@ -94,7 +98,7 @@ jobs:
         with:
           service: ${{ inputs.service_name }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.image_repo }}:${{ steps.meta.outputs.version }}
-          region: ${{ env.REGION }}
+          region: ${{ inputs.deploy_region }}
           
           flags: >
             ${{ inputs.deploy_flags }}

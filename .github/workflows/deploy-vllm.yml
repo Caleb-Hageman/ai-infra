@@ -13,6 +13,7 @@ jobs:
       service_name: llama3-vllm
       image_repo: api-registry/vllm
       dockerfile: Dockerfile.vllm
+      deploy_region: us-east4
       deploy_flags: >
         --memory=32Gi
         --cpu=8
