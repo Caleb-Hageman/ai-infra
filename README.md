@@ -34,6 +34,30 @@ uv run alembic upgrade head
 uv run fastapi dev
 ```
 
+## Chat API
+
+**POST /api/v1/chat** — Send a question and receive an LLM-generated response.
+
+**Request body:**
+- `question` (required): The user's question.
+- `project_id` (optional): UUID of a project; if provided, must belong to the API key's team.
+- `system_prompt` (optional): Custom system prompt to shape the LLM's behavior.
+
+**Response:**
+- `status`: `"success"` or `"error"`.
+- `answer`: The LLM's response text.
+- `citations`: List of cited sources (empty for MVP).
+
+**Environment:** Set `VLLM_BASE_URL` to the vLLM service URL (default: `http://localhost:8001`).
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the capital of France?"}'
+```
+
 ## How the Project is Structured
 
 ```
