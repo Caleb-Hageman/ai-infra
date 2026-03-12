@@ -22,8 +22,7 @@ jobs:
         --execution-environment=gen2
         --no-cpu-throttling
         --no-gpu-zonal-redundancy
-        --timeout=3600
-        --concurrency=8
         --min-instances=0
         --max-instances=1
+        --startup-probe tcpSocket.port=8080,initialDelaySeconds=240,failureThreshold=1,timeoutSeconds=240,periodSeconds=240
     secrets: inherit
