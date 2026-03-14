@@ -71,3 +71,4 @@ jobs:
           flags: --service-account=${{secrets.CLOUD_RUN_SERVICE_ACCOUNT}}
           env_vars: |-
             GCS_BUCKET_NAME=${{secrets.GCS_BUCKET_NAME}}
+            DATABASE_URL=postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db
