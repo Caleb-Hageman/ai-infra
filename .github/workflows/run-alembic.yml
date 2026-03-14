@@ -27,9 +27,13 @@ jobs:
 
       - name: Run Migration Job
         run: |
-          gcloud run jobs execute api-migration-job \
+          gcloud run jobs update api-migration-job \
             --region ${{ env.REGION }} \
+            --image ${{ env.IMAGE_NAME }} \
             --command uv \
             --args "run,alembic,upgrade,head" \
-            --update-env-vars DATABASE_URL="postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db" \
+            --update-env-vars DATABASE_URL="postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db"
+
+          gcloud run jobs execute api-migration-job \
+            --region ${{ env.REGION }} \
             --wait
