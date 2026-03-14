@@ -27,7 +27,7 @@ jobs:
 
       - name: Run Migration Job
         run: |
-          gcloud run jobs update api-migration-job \
+          gcloud run jobs deploy api-migration-job \
             --region ${{ env.REGION }} \
             --image ${{ env.IMAGE_NAME }} \
             --command uv \
