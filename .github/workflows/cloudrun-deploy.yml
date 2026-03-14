@@ -1,0 +1,110 @@
+name: Cloud Run Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+      image_repo:
+        required: true
+        type: string
+      dockerfile:
+        required: true
+        type: string
+      deploy_flags:
+        required: false
+        type: string
+      env_vars:
+        required: false
+        type: string
+      deploy_region:
+        required: false
+        type: string
+        default: 'us-east1'
+    secrets:
+      GCP_PROJECT:
+        required: true
+      WIF_PROVIDER:
+        required: true
+      WIF_SERVICE_ACCOUNT:
+        required: true
+      CLOUD_RUN_SERVICE_ACCOUNT:
+        required: false
+      HF_TOKEN:
+        required: false
+      GCS_BUCKET_NAME:
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    env:
+      PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+      REGION: us-east1
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.image_repo }}
+          tags: |
+            type=sha
+            type=raw,value=latest
+
+      - name: Authenticate to GCP
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Docker Auth
+        uses: docker/login-action@v3
+        with:
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+          registry: ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ inputs.service_name }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.image_repo }}:${{ steps.meta.outputs.version }}
+          region: ${{ inputs.deploy_region }}
+          
+          flags: >
+            ${{ inputs.deploy_flags }}
+            ${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT != '' && format('--service-account={0}', secrets.CLOUD_RUN_SERVICE_ACCOUNT) || '' }}
+            
+          env_vars: |
+            ${{ inputs.env_vars }}
+            ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
+            ${{ secrets.GCS_BUCKET_NAME != '' && format('GCS_BUCKET_NAME={0}', secrets.GCS_BUCKET_NAME) || '' }}
