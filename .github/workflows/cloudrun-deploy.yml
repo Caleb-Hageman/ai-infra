@@ -47,6 +47,7 @@ jobs:
     env:
       PROJECT_ID: ${{ secrets.GCP_PROJECT }}
       REGION: us-east1
+      DATABASE_URL: postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db
 
     permissions:
       id-token: write
@@ -108,3 +109,4 @@ jobs:
             ${{ inputs.env_vars }}
             ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
             ${{ secrets.GCS_BUCKET_NAME != '' && format('GCS_BUCKET_NAME={0}', secrets.GCS_BUCKET_NAME) || '' }}
+            DATABASE_URL=${{ env.DATABASE_URL }}
