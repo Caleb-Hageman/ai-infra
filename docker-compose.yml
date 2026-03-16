@@ -27,6 +27,7 @@ services:
     environment:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-https://llama3-vllm-703116401106.us-east4.run.app}
       - POSTGRES_USER=rag_user
       - POSTGRES_PASSWORD=rag_password
       - POSTGRES_DB=rag_db

@@ -35,6 +35,8 @@ on:
         required: false
       GCS_BUCKET_NAME:
         required: false
+      VLLM_BASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -109,4 +111,5 @@ jobs:
             ${{ inputs.env_vars }}
             ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
             ${{ secrets.GCS_BUCKET_NAME != '' && format('GCS_BUCKET_NAME={0}', secrets.GCS_BUCKET_NAME) || '' }}
+            ${{ secrets.VLLM_BASE_URL != '' && format('VLLM_BASE_URL={0}', secrets.VLLM_BASE_URL) || '' }}
             DATABASE_URL=${{ env.DATABASE_URL }}
