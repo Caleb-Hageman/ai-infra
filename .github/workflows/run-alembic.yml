@@ -1,0 +1,39 @@
+name: Manual Database Migration
+run-name: DB Migration by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT }}
+  REGION: us-east1
+  IMAGE_NAME: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/api-registry/api:latest
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+          service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}'
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Run Migration Job
+        run: |
+          gcloud run jobs deploy api-migration-job \
+            --region ${{ env.REGION }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --command uv \
+            --args "run,alembic,upgrade,head" \
+            --update-env-vars DATABASE_URL="postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db"
+
+          gcloud run jobs execute api-migration-job \
+            --region ${{ env.REGION }} \
+            --wait
