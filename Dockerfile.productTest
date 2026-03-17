@@ -1,0 +1,15 @@
+# Minimal probe container for Cloud Run
+FROM alpine:3.19
+
+# Install tools needed for testing connectivity
+RUN apk add --no-cache \
+    bash \
+    curl \
+    ca-certificates \
+    jq
+
+# Set working directory
+WORKDIR /workspace
+
+# Keep container alive so users can exec into it
+CMD ["sleep", "infinity"]
