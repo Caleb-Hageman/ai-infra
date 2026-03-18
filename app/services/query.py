@@ -47,6 +47,44 @@ async def execute_similarity_search(
     ]
 
 
+async def execute_similarity_search_for_team(
+    session: AsyncSession,
+    team_id: UUID,
+    query_text: str,
+    top_k: int,
+) -> list[ChunkMatch]:
+    """Similarity search across all documents for a team."""
+    await rag_service.ensure_dimension(1536)
+    query_embedding = await rag_service.embed_query(query_text)
+    distance = DocumentChunk.embedding.cosine_distance(query_embedding)
+
+    stmt = (
+        select(DocumentChunk, Document.title, distance.label("distance"))
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(
+            Document.team_id == team_id,
+            DocumentChunk.embedding.is_not(None),
+        )
+        .order_by(distance)
+        .limit(top_k)
+    )
+
+    result = await session.execute(stmt)
+    rows = result.all()
+    return [
+        ChunkMatch(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            chunk_index=chunk.chunk_index,
+            content=chunk.content,
+            score=round(1 - dist, 4),
+            source_file=source_file,
+            chunk_length=len(chunk.content),
+        )
+        for chunk, source_file, dist in rows
+    ]
+
+
 async def execute_similarity_search_for_source(
     session: AsyncSession,
     project_id: UUID,
