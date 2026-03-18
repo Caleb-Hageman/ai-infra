@@ -13,7 +13,7 @@ cd ai-infra
 ```
 
 2. Install dependencies:
-```bash
+```bash 
 uv sync
 ```
 
