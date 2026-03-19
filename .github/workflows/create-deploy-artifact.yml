@@ -14,7 +14,7 @@ jobs:
       service_name: api-service
       image_repo: api-registry/api
       dockerfile: Dockerfile.prod
-      deploy_flags: --memory=2Gi
+      deploy_flags: --memory=8Gi --cpu=4
       env_vars: |
         VLLM_BASE_URL=https://llama3-vllm-703116401106.us-east4.run.app
     secrets: inherit
