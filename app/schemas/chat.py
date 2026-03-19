@@ -15,4 +15,4 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     status: str
     answer: str
-    citations: list
+    citations: list[Citation]
