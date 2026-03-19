@@ -84,15 +84,13 @@ async def list_teams(
 # ── Project endpoints (nested under a team) ──────────────────────────────────
 
 
-@router.post("/{team_id}/projects", response_model=ProjectOut, status_code=201)
+@router.post("/projects", response_model=ProjectOut, status_code=201)
 async def create_project(
-    team_id: UUID,
     body: ProjectCreate,
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    if current_key.team_id != team_id:
-        raise HTTPException(403, "API key does not belong to this team")
+    team_id = current_key.team_id
 
     team = await session.get(Team, team_id)
     if not team:
@@ -105,14 +103,12 @@ async def create_project(
     return project
 
 
-@router.get("/{team_id}/projects", response_model=list[ProjectOut])
+@router.get("/projects", response_model=list[ProjectOut])
 async def list_projects(
-    team_id: UUID,
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    if current_key.team_id != team_id:
-        raise HTTPException(403, "API key does not belong to this team")
+    team_id = current_key.team_id
     result = await session.execute(select(Project).where(Project.team_id == team_id))
     return result.scalars().all()
 

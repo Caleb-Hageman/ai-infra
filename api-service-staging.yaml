@@ -1,0 +1,61 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/invoker-iam-disabled: 'true'
+    run.googleapis.com/maxScale: '3'
+    run.googleapis.com/urls: '["https://api-service-703116401106.us-east1.run.app","https://api-service-4xa2fuayfa-ue.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: us-east1
+    commit-sha: c28d56a67602c67ef9b758e48ed89463e3ee835b
+    managed-by: github-actions
+  name: api-service-staging
+  namespace: '703116401106'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '3'
+        run.googleapis.com/client-name: cloud-console
+        run.googleapis.com/startup-cpu-boost: 'true'
+        run.googleapis.com/vpc-access-connector: projects/indigo-bedrock-487015-g2/locations/us-east1/connectors/ai-infra-connector
+        run.googleapis.com/vpc-access-egress: all-traffic
+      labels:
+        client.knative.dev/nonce: 32d24f9b-a721-4f67-8a2a-f12e69fa8980
+        commit-sha: c28d56a67602c67ef9b758e48ed89463e3ee835b
+        managed-by: github-actions
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - env:
+        - name: GCS_BUCKET_NAME
+          value: ai_infra_share
+        - name: HF_TOKEN
+          value: REPLACE_AT_DEPLOY
+        - name: DATABASE_URL
+          value: postgresql+asyncpg://rag_user:REPLACE_AT_DEPLOY@REPLACE_DB_HOST:5432/rag_db
+        - name: VLLM_BASE_URL
+          value: https://llama3-vllm-703116401106.us-east4.run.app
+        image: us-east1-docker.pkg.dev/indigo-bedrock-487015-g2/api-registry/api:latest
+        name: api-1
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 8Gi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+      serviceAccountName: cloud-run-runtime@indigo-bedrock-487015-g2.iam.gserviceaccount.com
+      timeoutSeconds: 300
+  traffic:
+  - latestRevision: true
+    percent: 100
