@@ -9,6 +9,7 @@ from uuid import UUID
 import httpx
 
 from app.services import query as query_service
+from app.services import gcs
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +56,11 @@ async def generate_response(
         )
         for m in matches:
             context_parts.append(m.content)
+            signed_url = gcs.generate_signed_url(m.gcs_uri)
             citations.append({
                 "source": m.source_file or "",
                 "content": m.content[:200] + ("..." if len(m.content) > 200 else ""),
-                "gcs_uri": m.gcs_uri,
+                "url": signed_url,
                 "score": m.score,
             })
     elif team_id:
@@ -70,9 +72,11 @@ async def generate_response(
         )
         for m in matches:
             context_parts.append(m.content)
+            signed_url = gcs.generate_signed_url(m.gcs_uri)
             citations.append({
                 "source": m.source_file or "",
                 "content": m.content[:200] + ("..." if len(m.content) > 200 else ""),
+                "url": signed_url,
                 "score": m.score,
             })
     # else: no project_id, no team_id → no RAG, plain chat

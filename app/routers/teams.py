@@ -109,7 +109,6 @@ async def list_projects(
     session: AsyncSession = Depends(get_session),
 ):
     team_id = current_key.team_id
-    
     result = await session.execute(select(Project).where(Project.team_id == team_id))
     return result.scalars().all()
 
