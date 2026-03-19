@@ -1,0 +1,11 @@
+.gitignore
+
+pgvector/
+docker-compose.yaml
+docker-compose.override.yaml
+
+.venv/
+.git/
+__pycache__/
+*.pyc
+.env

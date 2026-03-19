@@ -15,6 +15,7 @@ class ChunkMatch(BaseModel):
     content: str
     score: float
     source_file: str | None
+    gcs_uri: str
     chunk_length: int
 
     model_config = {"from_attributes": True}

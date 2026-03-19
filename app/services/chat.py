@@ -58,6 +58,7 @@ async def generate_response(
             citations.append({
                 "source": m.source_file or "",
                 "content": m.content[:200] + ("..." if len(m.content) > 200 else ""),
+                "gcs_uri": m.gcs_uri,
                 "score": m.score,
             })
     elif team_id:

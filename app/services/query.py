@@ -20,7 +20,7 @@ async def execute_similarity_search(
     distance = DocumentChunk.embedding.cosine_distance(query_embedding)
 
     stmt = (
-        select(DocumentChunk, Document.title, distance.label("distance"))
+        select(DocumentChunk, Document.title, Document.gcs_uri, distance.label("distance"))
         .join(Document, Document.id == DocumentChunk.document_id)
         .where(
             DocumentChunk.document_id.in_(project_doc_ids),
@@ -41,9 +41,10 @@ async def execute_similarity_search(
             content=chunk.content,
             score=round(1 - dist, 4),
             source_file=source_file,
+            gcs_uri=gcs_uri,
             chunk_length=len(chunk.content),
         )
-        for chunk, source_file, dist in rows
+        for chunk, source_file, gcs_uri, dist in rows
     ]
 
 
@@ -59,7 +60,7 @@ async def execute_similarity_search_for_team(
     distance = DocumentChunk.embedding.cosine_distance(query_embedding)
 
     stmt = (
-        select(DocumentChunk, Document.title, distance.label("distance"))
+        select(DocumentChunk, Document.title, Document.gcs_uri, distance.label("distance"))
         .join(Document, Document.id == DocumentChunk.document_id)
         .where(
             Document.team_id == team_id,
@@ -79,9 +80,10 @@ async def execute_similarity_search_for_team(
             content=chunk.content,
             score=round(1 - dist, 4),
             source_file=source_file,
+            gcs_uri=gcs_uri,
             chunk_length=len(chunk.content),
         )
-        for chunk, source_file, dist in rows
+        for chunk, source_file, gcs_uri, dist in rows
     ]
 
 
