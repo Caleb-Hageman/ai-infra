@@ -8,12 +8,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import get_api_key
+from app.auth import get_api_key, ADMIN_ID
 from app.db import get_session
 from app.models import ApiKey, ApiKeyStatus, Project, Team
 
-router = APIRouter(prefix="/teams", tags=["teams"])
+import logging
 
+router = APIRouter(prefix="/teams", tags=["teams"])
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app")
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +67,16 @@ class ApiKeyOut(BaseModel):
 
 
 @router.post("", response_model=TeamOut, status_code=201)
-async def create_team(body: TeamCreate, session: AsyncSession = Depends(get_session)):
+async def create_team(
+    body: TeamCreate, 
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session)):
+    
+    logger.info("(create team: comparing ADMIN_ID: %s with cur_id: %s)", ADMIN_ID, current_key.team_id)
+
+    if current_key.team_id != ADMIN_ID:
+        raise HTTPException(401, "Unauthorized")
+
     team = Team(name=body.name)
     session.add(team)
     await session.commit()
@@ -117,7 +129,15 @@ async def list_projects(
 
 
 @router.post("/{team_id}/api-keys", response_model=ApiKeyCreated, status_code=201)
-async def create_api_key(team_id: UUID, session: AsyncSession = Depends(get_session)):
+async def create_api_key(
+    team_id: UUID,
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
+):
+
+    if current_key.team_id != ADMIN_ID:
+        raise HTTPException(401, "Unauthorized")
+
     team = await session.get(Team, team_id)
     if not team:
         raise HTTPException(404, "Team not found")
@@ -125,17 +145,16 @@ async def create_api_key(team_id: UUID, session: AsyncSession = Depends(get_sess
     raw_key = "sk-" + secrets.token_hex(32)
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
-    api_key = ApiKey(team_id=team_id, key_hash=key_hash)
-    session.add(api_key)
-    await session.commit()
+    api_key = ApiKey(team_id=team_id, key_hash=key_hash)    
+    session.add(api_key)    
+    await session.commit()    
     await session.refresh(api_key)
-
     return ApiKeyCreated(
         id=api_key.id,
         team_id=api_key.team_id,
         key=raw_key,
         created_at=api_key.created_at,
-    )
+        )
 
 
 @router.get("/{team_id}/api-keys", response_model=list[ApiKeyOut])
@@ -144,8 +163,9 @@ async def list_api_keys(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    if current_key.team_id != team_id:
+    if current_key.team_id != team_id and current_key.team_id != ADMIN_ID:
         raise HTTPException(403, "API key does not belong to this team")
+
     result = await session.execute(
         select(ApiKey).where(ApiKey.team_id == team_id)
     )
@@ -159,7 +179,7 @@ async def revoke_api_key(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    if current_key.team_id != team_id:
+    if current_key.team_id != team_id and current_key.team_id != ADMIN_ID:
         raise HTTPException(403, "API key does not belong to this team")
 
     api_key = await session.get(ApiKey, key_id)

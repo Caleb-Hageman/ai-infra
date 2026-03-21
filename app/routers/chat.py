@@ -9,7 +9,6 @@ from app.services import chat as chat_service
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
-
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
