@@ -103,10 +103,12 @@ async def create_project(
     session: AsyncSession = Depends(get_session),
 ):
     team_id = current_key.team_id
-
+    
     team = await session.get(Team, team_id)
+    
     if not team:
         raise HTTPException(404, "Team not found")
+
 
     project = Project(team_id=team_id, name=body.name)
     session.add(project)

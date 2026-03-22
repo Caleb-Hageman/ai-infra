@@ -1,7 +1,7 @@
 # Purpose: Teams router tests (create_team, create_project, create_api_key, list_*, revoke_api_key).
-
+import os
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from app.auth import get_api_key
 from app.db import get_session
@@ -32,14 +32,68 @@ def _fake_api_key_out(**kwargs):
     defaults.update(kwargs)
     return type("ApiKey", (), defaults)()
 
+admin_id = UUID(os.getenv("ADMIN_TEAM_ID"))
+#admin_api_key = os.getenv("ADMIN_API_KEY")
+#admin_api_key_id = os.getenv("ADMIN_API_KEY_ID")
 
-def test_create_team_201_with_valid_body(app_client, fake_session):
-    with override_deps({get_session: fake_session(None)}):
-        response = app_client.post("/teams", json={"name": "Acme"})
+def _admin_team(**kwargs):
+    defaults = {"id": admin_id, "name": "Admin Team"}
+    defaults.update(kwargs)
+    return type("Team", (), defaults)()
+
+#def _admin_api_key_out(**kwargs):
+#    defaults = {
+#        "id": admin_api_key_id,
+#        "team_id": admin_id,
+#        "status": "active",
+#        "created_at": datetime.now(timezone.utc),
+#        "revoked_at": None,
+#    }
+#    defaults.update(kwargs)
+#    return type("ApiKey", (), defaults)()
+
+
+
+def test_create_team_201_with_auth(app_client, fake_session, fake_api_key):
+    team_id = admin_id
+    team = _admin_team()
+    key = fake_api_key(team_id=admin_id)
+    
+    async def fake_get_api_key():
+        return key
+    
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(get_result=team),
+    }):        
+        response = app_client.post(
+            "/teams", 
+            json={"name": "Acme"},
+            headers={"Authorization": "Bearer sk-test"},)
+    
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Acme"
     assert "id" in data
+
+def test_create_team_401_without_auth(app_client, fake_session, fake_api_key):
+    team_id = uuid4()
+    team = _fake_team(id=team_id)
+    key = fake_api_key(team_id=team_id)
+    
+    async def fake_get_api_key():
+        return key
+    
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(get_result=team),
+    }):        
+        response = app_client.post(
+            "/teams", 
+            json={"name": "Acme"},
+            headers={"Authorization": "Bearer sk-test"},)
+    
+    assert response.status_code == 401
 
 
 def test_create_project_201_with_valid_body(app_client, fake_session, fake_api_key):
@@ -55,7 +109,7 @@ def test_create_project_201_with_valid_body(app_client, fake_session, fake_api_k
         get_session: fake_session(get_result=team),
     }):
         response = app_client.post(
-            f"/teams/{team_id}/projects",
+            f"/teams/projects",
             json={"name": "My Project"},
             headers={"Authorization": "Bearer sk-test"},
         )
@@ -66,33 +120,38 @@ def test_create_project_201_with_valid_body(app_client, fake_session, fake_api_k
     assert "id" in data
 
 
-def test_create_project_403_when_key_not_in_team(app_client, fake_session, fake_api_key):
+def test_create_api_key_401_without_auth(app_client, fake_session, fake_api_key):
     team_id = uuid4()
-    other_team_id = uuid4()
     team = _fake_team(id=team_id)
-    key = fake_api_key(team_id=other_team_id)
+    key = fake_api_key(team_id=team_id)
 
     async def fake_get_api_key():
         return key
 
     with override_deps({
-        get_api_key: fake_get_api_key,
         get_session: fake_session(get_result=team),
-    }):
+        get_api_key: fake_get_api_key,
+        }):
         response = app_client.post(
-            f"/teams/{team_id}/projects",
-            json={"name": "My Project"},
-            headers={"Authorization": "Bearer sk-test"},
-        )
-    assert response.status_code == 403
+            f"/teams/{team_id}/api-keys",
+            headers={"Authorization": "Bearer sk-test"},)
+    assert response.status_code == 401
 
+def test_create_api_key_201_with_auth(app_client, fake_session, fake_api_key):
+    team_id = admin_id
+    team = _admin_team()
+    key = fake_api_key(team_id=admin_id)
+    
+    async def fake_get_api_key():
+        return key
 
-def test_create_api_key_201_with_valid_body(app_client, fake_session):
-    team_id = uuid4()
-    team = _fake_team(id=team_id)
-
-    with override_deps({get_session: fake_session(get_result=team)}):
-        response = app_client.post(f"/teams/{team_id}/api-keys")
+    with override_deps({
+        get_session: fake_session(get_result=team),
+        get_api_key: fake_get_api_key,
+        }):
+        response = app_client.post(
+            f"/teams/{team_id}/api-keys",
+            headers={"Authorization": "Bearer sk-test"},)
     assert response.status_code == 201
     data = response.json()
     assert data["team_id"] == str(team_id)
@@ -103,7 +162,7 @@ def test_create_api_key_201_with_valid_body(app_client, fake_session):
 
 def test_list_teams_200_with_mocked_data(app_client, fake_session, fake_api_key):
     team_id = uuid4()
-    team = _fake_team(id=team_id, name="Acme")
+    team = _fake_team(team_id=team_id, name="Acme")
     key = fake_api_key(team_id=team_id)
 
     async def fake_get_api_key():
@@ -133,7 +192,7 @@ def test_list_projects_200_with_mocked_data(app_client, fake_session, fake_api_k
         get_session: fake_session(execute_result=[project]),
     }):
         response = app_client.get(
-            f"/teams/{team_id}/projects",
+            f"/teams/projects",
             headers={"Authorization": "Bearer sk-test"},
         )
     assert response.status_code == 200
