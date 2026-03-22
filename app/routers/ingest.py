@@ -38,7 +38,7 @@ async def upload_file(
 
     try:
         destination = f"{team_id}/{project_id}/{file.filename}"
-        gcs_path = gcs.upload_file_stream(file.file, destination, file.content_type)
+        gcs_path = gcs.upload_file_stream(file.file, destination)
     except Exception as e:
         raise HTTPException(500, f"GCS upload failed: {e}")
 

@@ -16,6 +16,7 @@ from app.schemas.query import (
 from app.schemas.document import DocumentOut, ChunkOut
 from app.services import query
 
+
 router = APIRouter(prefix="/query", tags=["query"])
 
 
