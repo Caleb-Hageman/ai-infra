@@ -3,6 +3,7 @@ import datetime
 import mimetypes
 from google.cloud import storage
 from google.cloud.exceptions import GoogleCloudError
+import google.auth.transport.requests
 import google.auth
 
 
@@ -59,13 +60,20 @@ def generate_signed_url(blob_name_or_uri: str, expiration_mins: int = 480) -> st
             print(f"Blob not found: {blob_name}")
             return None
     
+        credentials, _ = google.auth.default()
 
+        if credentials.requires_scopes:
+            credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
+
+        auth_request = google.auth.transport.requests.Request()
+        credentials.refresh(auth_request)
 
         url = blob.generate_signed_url(
             version="v4",
             expiration=datetime.timedelta(minutes=expiration_mins),
             method="GET",
-            service_account_email=SA_EMAIL 
+            service_account_email=SA_EMAIL,
+            access_token=credentials.token
         )
         return url
     
