@@ -72,8 +72,6 @@ async def create_team(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session)):
     
-    logger.info("(create team: comparing ADMIN_ID: %s with cur_id: %s)", ADMIN_ID, current_key.team_id)
-
     if current_key.team_id != ADMIN_ID:
         raise HTTPException(401, "Unauthorized")
 

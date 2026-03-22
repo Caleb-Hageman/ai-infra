@@ -33,26 +33,11 @@ def _fake_api_key_out(**kwargs):
     return type("ApiKey", (), defaults)()
 
 admin_id = UUID(os.getenv("ADMIN_TEAM_ID"))
-#admin_api_key = os.getenv("ADMIN_API_KEY")
-#admin_api_key_id = os.getenv("ADMIN_API_KEY_ID")
 
 def _admin_team(**kwargs):
     defaults = {"id": admin_id, "name": "Admin Team"}
     defaults.update(kwargs)
     return type("Team", (), defaults)()
-
-#def _admin_api_key_out(**kwargs):
-#    defaults = {
-#        "id": admin_api_key_id,
-#        "team_id": admin_id,
-#        "status": "active",
-#        "created_at": datetime.now(timezone.utc),
-#        "revoked_at": None,
-#    }
-#    defaults.update(kwargs)
-#    return type("ApiKey", (), defaults)()
-
-
 
 def test_create_team_201_with_auth(app_client, fake_session, fake_api_key):
     team_id = admin_id
