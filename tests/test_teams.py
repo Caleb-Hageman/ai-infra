@@ -32,7 +32,7 @@ def _fake_api_key_out(**kwargs):
     defaults.update(kwargs)
     return type("ApiKey", (), defaults)()
 
-admin_id = UUID(os.getenv("ADMIN_TEAM_ID"))
+admin_id = UUID(os.getenv("ADMIN_TEAM_ID", "00000000-0000-0000-0000-000000000000"))
 
 def _admin_team(**kwargs):
     defaults = {"id": admin_id, "name": "Admin Team"}
