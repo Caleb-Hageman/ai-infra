@@ -24,4 +24,6 @@ jobs:
         run: uv sync
 
       - name: Run tests with coverage
+        env:
+          ADMIN_TEAM_ID: '123e4567-e89b-12d3-a456-426614174000'
         run: uv run pytest tests/ --cov=app --cov-report=term-missing --cov-fail-under=80
