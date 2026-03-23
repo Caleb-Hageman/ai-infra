@@ -15,6 +15,8 @@ from app.schemas.query import (
 )
 from app.schemas.document import DocumentOut, ChunkOut
 from app.services import query
+from app.services import gcs
+
 
 router = APIRouter(prefix="/query", tags=["query"])
 
@@ -108,3 +110,51 @@ async def delete_document(
         source_file=source,
         chunks_deleted=deleted,
     )
+
+@router.get("/documents/{document_id}/test-url")
+async def test_document_signed_url(
+    document_id: UUID,
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Test endpoint to verify GCS signed URL generation for a specific document.
+    Replicates the logic used in the Chat Citation loop.
+    """
+    # 1. Fetch the document using your existing query service
+    doc = await query.get_document_by_id(session, document_id)
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found in database")
+
+    # 2. Verify it has a GCS URI
+    if not doc.gcs_uri:
+        raise HTTPException(
+            status_code=400, 
+            detail="Document record exists but has no gcs_uri"
+        )
+
+    # 3. Call your updated generate_signed_url function
+    # This will use the SA_EMAIL and handle the URI/Blob Name logic we fixed
+    try:
+        signed_url = gcs.generate_signed_url(doc.gcs_uri)
+        
+        if not signed_url:
+            return {
+                "status": "error",
+                "message": "generate_signed_url returned None. Check if file exists in GCS.",
+                "database_uri": doc.gcs_uri
+            }
+
+        return {
+            "status": "success",
+            "document_title": doc.title,
+            "database_uri": doc.gcs_uri,
+            "presigned_url": signed_url
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"URL Generation crashed: {str(e)}"
+        )

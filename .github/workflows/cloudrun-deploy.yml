@@ -112,4 +112,5 @@ jobs:
             ${{ secrets.HF_TOKEN != '' && format('HF_TOKEN={0}', secrets.HF_TOKEN) || '' }}
             ${{ secrets.GCS_BUCKET_NAME != '' && format('GCS_BUCKET_NAME={0}', secrets.GCS_BUCKET_NAME) || '' }}
             ${{ secrets.VLLM_BASE_URL != '' && format('VLLM_BASE_URL={0}', secrets.VLLM_BASE_URL) || '' }}
+            SERVICE_ACCOUNT_EMAIL=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
             DATABASE_URL=${{ env.DATABASE_URL }}

@@ -1,29 +1,40 @@
 import os
 import datetime
+import mimetypes
 from google.cloud import storage
 from google.cloud.exceptions import GoogleCloudError
+import google.auth.transport.requests
+import google.auth
+
 
 BUCKET_NAME = os.getenv("GCS_BUCKET_NAME")
+SA_EMAIL = os.getenv("SERVICE_ACCOUNT_EMAIL")
 
-_client = None
+_storage_client = None
 
 def get_bucket():
+    global _storage_client
     if not BUCKET_NAME:
         raise RuntimeError("GCS_BUCKET_NAME environment variable is not set.")
-    global _client
-    if _client is None:
+    
+    if _storage_client is None:
         try:
-            _client = storage.Client()
+            credentials, project_id = google.auth.default()
+            _storage_client = storage.Client(credentials=credentials, project=project_id)
         except Exception as e:
             print(f"Error initializing GCS Client: {e}")
             raise e
 
-    return _client.bucket(BUCKET_NAME)
+    return _storage_client.bucket(BUCKET_NAME)
 
-def upload_file_stream(file_obj, destination_blob_name: str, content_type: str = "application/pdf") -> str:
+def upload_file_stream(file_obj, destination_blob_name: str) -> str:
     try:
         bucket = get_bucket()
         blob = bucket.blob(destination_blob_name)
+
+        content_type, _ = mimetypes.guess_type(destination_blob_name)
+        if content_type is None:
+            content_type = "application/octet-stream"
         
         file_obj.seek(0)
         
@@ -36,18 +47,33 @@ def upload_file_stream(file_obj, destination_blob_name: str, content_type: str =
         print(f"GCS Upload Failed: {e}")
         raise e
     
-def generate_signed_url(blob_name: str, expiration_mins: int = 480) -> str:
+def generate_signed_url(blob_name_or_uri: str, expiration_mins: int = 480) -> str:
     try:
         bucket = get_bucket()
+
+        prefix = f"gs://{BUCKET_NAME}/"
+        blob_name = blob_name_or_uri.replace(prefix, "")
+
         blob = bucket.blob(blob_name)
         
         if not blob.exists():
+            print(f"Blob not found: {blob_name}")
             return None
+    
+        credentials, _ = google.auth.default()
+
+        if credentials.requires_scopes:
+            credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
+
+        auth_request = google.auth.transport.requests.Request()
+        credentials.refresh(auth_request)
 
         url = blob.generate_signed_url(
             version="v4",
             expiration=datetime.timedelta(minutes=expiration_mins),
             method="GET",
+            service_account_email=SA_EMAIL,
+            access_token=credentials.token
         )
         return url
     
