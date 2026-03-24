@@ -33,6 +33,28 @@ async def insert_document_chunks(
     Returns:
         List of inserted chunk IDs
     """
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001")
+VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+VLLM_TIMEOUT = float(os.getenv("VLLM_TIMEOUT", "300"))
+CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", "5"))
+VLLM_MAX_RETRIES = int(os.getenv("VLLM_MAX_RETRIES", "2"))
+
+
+def _get_id_token_headers() -> dict[str, str]:
+    """Fetch GCP identity token for Cloud Run service-to-service auth. Returns empty dict if not applicable."""
+    base = VLLM_BASE_URL.rstrip("/")
+    if "run.app" not in base:
+        return {}
+    try:
+        import google.auth.transport.requests
+        import google.oauth2.id_token
+
+        request = google.auth.transport.requests.Request()
+        token = google.oauth2.id_token.fetch_id_token(request, base)
+        return {"Authorization": f"Bearer {token}"}
+    except Exception as e:
+        logger.warning("Could not fetch identity token for vLLM: %s", e)
+        return {}
 
     chunk_objects = []
 
