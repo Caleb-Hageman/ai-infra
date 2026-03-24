@@ -7,7 +7,6 @@ inside a thread pool via asyncio.run_in_executor.
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +14,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "mixedbread-ai/mxbai-embed-large-v1")
-DEVICE = os.getenv("DEVICE", "cpu")
-TARGET_EMBEDDING_DIM = int(os.getenv("TARGET_EMBEDDING_DIM", "1536"))
+from app.config import EMBEDDING_DIM, EMBEDDING_DEVICE, EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +42,7 @@ class RAGService:
     def _load_model(self) -> HuggingFaceEmbeddings:
         return HuggingFaceEmbeddings(
             model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": DEVICE},
+            model_kwargs={"device": EMBEDDING_DEVICE},
             encode_kwargs={"normalize_embeddings": True},
         )
 
@@ -61,7 +58,7 @@ class RAGService:
         model = await self._get_model()
         loop = asyncio.get_running_loop()
         vector = await loop.run_in_executor(None, model.embed_query, text)
-        return self._normalize_vector(list(vector), TARGET_EMBEDDING_DIM)
+        return self._normalize_vector(list(vector), EMBEDDING_DIM)
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -70,7 +67,7 @@ class RAGService:
         loop = asyncio.get_running_loop()
         vectors = await loop.run_in_executor(None, model.embed_documents, texts)
         return [
-            self._normalize_vector(list(v), TARGET_EMBEDDING_DIM)
+            self._normalize_vector(list(v), EMBEDDING_DIM)
             for v in vectors
         ]
 

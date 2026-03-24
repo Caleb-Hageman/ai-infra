@@ -13,10 +13,13 @@ from app.services import gcs
 
 logger = logging.getLogger(__name__)
 
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001")
-VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
-VLLM_TIMEOUT = float(os.getenv("VLLM_TIMEOUT", "300"))
-CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", "5"))
+from app.config import DEFAULT_TOP_K, VLLM_BASE_URL, VLLM_MODEL, VLLM_TIMEOUT
+from app.services import query as query_service
+from app.services import gcs
+
+logger = logging.getLogger(__name__)
+
+CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", str(DEFAULT_TOP_K)))
 VLLM_MAX_RETRIES = int(os.getenv("VLLM_MAX_RETRIES", "2"))
 
 

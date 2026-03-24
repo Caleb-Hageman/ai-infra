@@ -2,6 +2,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import EMBEDDING_DIM
 from app.models import Document, DocumentChunk
 from app.schemas.query import ChunkMatch
 from app.services.rag import rag_service
@@ -13,7 +14,7 @@ async def execute_similarity_search(
     top_k: int
 ) -> list[ChunkMatch]:
     """Performs a vector similarity search using pgvector."""
-    await rag_service.ensure_dimension(1536)
+    await rag_service.ensure_dimension(EMBEDDING_DIM)
     query_embedding = await rag_service.embed_query(query_text)
     project_doc_ids = select(Document.id).where(Document.project_id == project_id)
 
@@ -95,7 +96,7 @@ async def execute_similarity_search_for_source(
     source_filter: str,
 ) -> list[ChunkMatch]:
     """Similarity search scoped to one source filename."""
-    await rag_service.ensure_dimension(1536)
+    await rag_service.ensure_dimension(EMBEDDING_DIM)
     query_embedding = await rag_service.embed_query(query_text)
     distance = DocumentChunk.embedding.cosine_distance(query_embedding)
 
