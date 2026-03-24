@@ -1,9 +1,8 @@
 # Purpose: Chat completion via vLLM for POST /api/v1/chat.
 
-import os
 import httpx
 
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001")
+from app.config import VLLM_BASE_URL, VLLM_MODEL, VLLM_TIMEOUT
 
 
 async def generate_response(
@@ -22,10 +21,10 @@ async def generate_response(
             resp = await client.post(
                 f"{VLLM_BASE_URL.rstrip('/')}/v1/chat/completions",
                 json={
-                    "model": "llama-3-8b-instruct",
+                    "model": VLLM_MODEL,
                     "messages": [{"role": "user", "content": prompt}],
                 },
-                timeout=60.0,
+                timeout=VLLM_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()

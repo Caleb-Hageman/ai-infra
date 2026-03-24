@@ -4,10 +4,8 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
+from app.config import EMBEDDING_DIM
 from app.models import DocumentChunk
-
-
-EMBEDDING_DIM = 1536
 
 
 async def insert_document_chunks(
@@ -23,7 +21,7 @@ async def insert_document_chunks(
     Each chunk dict must contain:
         - chunk_index (int)
         - content (str)
-        - embedding (List[float]) length 1536
+        - embedding (List[float]) length EMBEDDING_DIM
 
     Optional metadata:
         - page_start
