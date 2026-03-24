@@ -5,12 +5,14 @@ Revises:
 Create Date: 2026-02-12 10:31:44.764037
 
 """
+import os
+import hashlib
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
-
+from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision: str = '78098b94ff86'
@@ -118,6 +120,39 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('query_id', 'chunk_id')
     )
     # ### end Alembic commands ###
+    # ### start initial value load ###
+    
+    conn = op.get_bind()
+
+    # Read from environment
+    team_id = os.getenv("ADMIN_TEAM_ID", "00000000-0000-0000-0000-000000000001")
+    api_key_id = os.getenv("ADMIN_API_KEY_ID", "00000000-0000-0000-0000-000000000002")
+    raw_key = os.getenv("ADMIN_API_KEY", "admin-api-key")
+
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    # Insert team
+    conn.execute(text("""
+        INSERT INTO teams (id, name)
+        VALUES (:team_id, :name)
+        ON CONFLICT (id) DO NOTHING
+    """), {
+        "team_id": team_id,
+        "name": "Default Team"
+    })
+
+    # Insert API key
+    conn.execute(text("""
+        INSERT INTO api_keys (id, team_id, key_hash, status)
+        VALUES (:api_key_id, :team_id, :key_hash, 'active')
+        ON CONFLICT (id) DO NOTHING
+    """), {
+        "api_key_id": api_key_id,
+        "team_id": team_id,
+        "key_hash": key_hash
+    })
+    # ### end initial value load ###
+
 
 
 def downgrade() -> None:

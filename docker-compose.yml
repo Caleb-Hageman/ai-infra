@@ -4,9 +4,12 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=rag_db
-      - POSTGRES_USER=rag_user
-      - POSTGRES_PASSWORD=rag_password
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - ADMIN_TEAM_ID=${ADMIN_TEAM_ID}
+      - ADMIN_API_KEY_ID=${ADMIN_API_KEY_ID}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -28,11 +31,12 @@ services:
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
       - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
       - VLLM_BASE_URL=${VLLM_BASE_URL:-https://llama3-vllm-703116401106.us-east4.run.app}
-      - POSTGRES_USER=rag_user
-      - POSTGRES_PASSWORD=rag_password
-      - POSTGRES_DB=rag_db
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_PORT=5432
       - POSTGRES_HOST=db
+      - ADMIN_TEAM_ID=${ADMIN_TEAM_ID}
     depends_on:
       db:
         condition: service_healthy

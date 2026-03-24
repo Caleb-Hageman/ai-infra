@@ -120,6 +120,22 @@ Alembic tracks **changes to the database schema over time**. It answers the ques
 Every time you change `models.py`, you generate a **migration** — a small Python script
 that tells Postgres exactly what to add/remove/change.
 
+## Testing
+
+Run the test suite:
+
+```bash
+uv run pytest tests/ -v
+```
+
+Run tests with coverage:
+
+```bash
+uv run pytest tests/ --cov=app --cov-report=term-missing
+```
+
+**Coverage target:** >80% overall. CI fails if coverage drops below 80%.
+
 ## Common Tasks
 
 ### "I just cloned the repo, how do I set up?"

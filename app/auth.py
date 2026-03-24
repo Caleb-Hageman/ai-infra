@@ -1,15 +1,18 @@
 import hashlib
-
+import os
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 from app.db import get_session
 from app.models import ApiKey, ApiKeyStatus
 
-bearer_scheme = HTTPBearer()
+ADMIN_ID = UUID(os.getenv("ADMIN_TEAM_ID", "00000000-0000-0000-0000-000000000000"))
 
+
+bearer_scheme = HTTPBearer()
 
 async def get_api_key(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
