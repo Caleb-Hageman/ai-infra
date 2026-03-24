@@ -23,7 +23,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 async def upload_file(
     project_id: UUID,
     file: UploadFile,
-    chunk_size: int = Query(DEFAULT_CHUNK_SIZE, ge=100, le=8000),
+    chunk_size: int = Query(DEFAULT_CHUNK_SIZE, ge=100, le=512),
     chunk_overlap: int = Query(DEFAULT_CHUNK_OVERLAP, ge=0, le=1000),
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),

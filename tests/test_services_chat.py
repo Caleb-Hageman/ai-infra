@@ -85,12 +85,22 @@ async def test_generate_response_retries_on_read_timeout(mock_client_cls, mock_s
 
 @patch("app.services.chat.asyncio.sleep", new_callable=AsyncMock)
 @patch("app.services.chat.httpx.AsyncClient")
+@patch("app.services.chat.gcs.generate_signed_url", return_value="https://example/signed")
 @patch("app.services.chat.query_service.execute_similarity_search", new_callable=AsyncMock)
 async def test_generate_response_with_rag_context_and_system_prompt(
-    mock_search, mock_client_cls, mock_sleep
+    mock_search, _mock_signed, mock_client_cls, mock_sleep
 ):
     mock_search.return_value = [
-        type("M", (), {"content": "ctx", "source_file": "f.pdf", "score": 0.9})(),
+        type(
+            "M",
+            (),
+            {
+                "content": "ctx",
+                "source_file": "f.pdf",
+                "score": 0.9,
+                "gcs_uri": "gs://bucket/obj",
+            },
+        )(),
     ]
     mock_resp = MagicMock()
     mock_resp.status_code = 200
