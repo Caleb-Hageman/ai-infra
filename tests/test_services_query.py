@@ -16,7 +16,7 @@ def _fake_chunk_row(content: str = "chunk content", score: float = 0.95):
     chunk.document_id = uuid4()
     chunk.chunk_index = 0
     chunk.content = content
-    return chunk, "doc.pdf", 1 - score
+    return chunk, "doc.pdf", "gs://bucket/doc.pdf", 1 - score
 
 
 @patch("app.services.query.rag_service.embed_query", new_callable=AsyncMock)
@@ -25,9 +25,9 @@ async def test_execute_similarity_search_returns_chunk_matches(mock_ensure, mock
     mock_embed.return_value = [0.1] * 1536
 
     project_id = uuid4()
-    chunk, source_file, dist = _fake_chunk_row("hello world", 0.92)
+    row = _fake_chunk_row("hello world", 0.92)
     mock_result = MagicMock()
-    mock_result.all.return_value = [(chunk, source_file, dist)]
+    mock_result.all.return_value = [row]
 
     session = MagicMock()
     session.execute = AsyncMock(return_value=mock_result)
@@ -49,9 +49,9 @@ async def test_execute_similarity_search_returns_chunk_matches(mock_ensure, mock
 async def test_execute_similarity_search_for_team_returns_matches(mock_ensure, mock_embed):
     mock_embed.return_value = [0.1] * 1536
     team_id = uuid4()
-    chunk, source_file, dist = _fake_chunk_row("team chunk", 0.88)
+    row = _fake_chunk_row("team chunk", 0.88)
     mock_result = MagicMock()
-    mock_result.all.return_value = [(chunk, source_file, dist)]
+    mock_result.all.return_value = [row]
 
     session = MagicMock()
     session.execute = AsyncMock(return_value=mock_result)
@@ -71,9 +71,9 @@ async def test_execute_similarity_search_for_team_returns_matches(mock_ensure, m
 async def test_execute_similarity_search_for_source_returns_matches(mock_ensure, mock_embed):
     mock_embed.return_value = [0.1] * 1536
     project_id = uuid4()
-    chunk, source_file, dist = _fake_chunk_row("source chunk", 0.91)
+    row = _fake_chunk_row("source chunk", 0.91)
     mock_result = MagicMock()
-    mock_result.all.return_value = [(chunk, source_file, dist)]
+    mock_result.all.return_value = [row]
 
     session = MagicMock()
     session.execute = AsyncMock(return_value=mock_result)
