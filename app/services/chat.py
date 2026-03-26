@@ -8,11 +8,6 @@ from uuid import UUID
 
 import httpx
 
-from app.services import query as query_service
-from app.services import gcs
-
-logger = logging.getLogger(__name__)
-
 from app.config import DEFAULT_TOP_K, VLLM_BASE_URL, VLLM_MODEL, VLLM_TIMEOUT
 from app.services import query as query_service
 from app.services import gcs

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+from app.config import EMBEDDING_DIM
 from app.services.query import (
     execute_similarity_search,
     execute_similarity_search_for_source,
@@ -22,7 +23,7 @@ def _fake_chunk_row(content: str = "chunk content", score: float = 0.95):
 @patch("app.services.query.rag_service.embed_query", new_callable=AsyncMock)
 @patch("app.services.query.rag_service.ensure_dimension", new_callable=AsyncMock)
 async def test_execute_similarity_search_returns_chunk_matches(mock_ensure, mock_embed):
-    mock_embed.return_value = [0.1] * 1536
+    mock_embed.return_value = [0.1] * EMBEDDING_DIM
 
     project_id = uuid4()
     row = _fake_chunk_row("hello world", 0.92)
@@ -39,7 +40,7 @@ async def test_execute_similarity_search_returns_chunk_matches(mock_ensure, mock
     assert matches[0].score == 0.92
     assert matches[0].source_file == "doc.pdf"
     assert matches[0].chunk_length == 11
-    mock_ensure.assert_called_once_with(1536)
+    mock_ensure.assert_called_once_with(EMBEDDING_DIM)
     mock_embed.assert_called_once_with("query")
     session.execute.assert_called_once()
 
@@ -47,7 +48,7 @@ async def test_execute_similarity_search_returns_chunk_matches(mock_ensure, mock
 @patch("app.services.query.rag_service.embed_query", new_callable=AsyncMock)
 @patch("app.services.query.rag_service.ensure_dimension", new_callable=AsyncMock)
 async def test_execute_similarity_search_for_team_returns_matches(mock_ensure, mock_embed):
-    mock_embed.return_value = [0.1] * 1536
+    mock_embed.return_value = [0.1] * EMBEDDING_DIM
     team_id = uuid4()
     row = _fake_chunk_row("team chunk", 0.88)
     mock_result = MagicMock()
@@ -69,7 +70,7 @@ async def test_execute_similarity_search_for_team_returns_matches(mock_ensure, m
 @patch("app.services.query.rag_service.embed_query", new_callable=AsyncMock)
 @patch("app.services.query.rag_service.ensure_dimension", new_callable=AsyncMock)
 async def test_execute_similarity_search_for_source_returns_matches(mock_ensure, mock_embed):
-    mock_embed.return_value = [0.1] * 1536
+    mock_embed.return_value = [0.1] * EMBEDDING_DIM
     project_id = uuid4()
     row = _fake_chunk_row("source chunk", 0.91)
     mock_result = MagicMock()

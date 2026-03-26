@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.config import EMBEDDING_DIM
 from app.services.insert import insert_document_chunks
 
 
@@ -13,7 +14,7 @@ def _valid_chunk(content: str = "chunk text", idx: int = 0, **meta) -> dict:
     return {
         "chunk_index": idx,
         "content": content,
-        "embedding": [0.1] * 1536,
+        "embedding": [0.1] * EMBEDDING_DIM,
         **meta,
     }
 
@@ -134,7 +135,9 @@ async def test_insert_document_chunks_rejects_wrong_embedding_dim():
         {"chunk_index": 0, "content": "bad", "embedding": [0.1] * 512},
     ]
 
-    with pytest.raises(ValueError, match="Embedding must be length 1536, got 512"):
+    with pytest.raises(
+        ValueError, match=fr"Embedding must be length {EMBEDDING_DIM}, got 512"
+    ):
         await insert_document_chunks(session, document_id=uuid4(), chunks=chunks)
 
     session.add_all.assert_not_called()
