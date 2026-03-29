@@ -198,3 +198,31 @@ class QueryCitation(Base):
     query = relationship("QueryLog", back_populates="citations")
     chunk = relationship("DocumentChunk")
 
+class ApiUsage(Base):
+    __tablename__ = "api_usage"
+
+    #id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, primary_key=True)
+    #api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+
+    # Usage metrics
+    latency_ms = Column(Integer, nullable=True)
+    last_req = Column(Text, nullable=True)
+    rate_max = Column(Integer, nullable=True)
+
+    # Count Feature calls / feature was used
+    total_count = Column(Integer, nullable=False, server_default="1")    
+    chat_count = Column(Integer, nullable=False, server_default="0")
+    ingest_count = Column(Integer, nullable=False, server_default="0")
+    query_count = Column(Integer, nullable=False, server_default="0")
+    team_count = Column(Integer, nullable=False, server_default="0")
+
+    # Relationships
+    team = relationship("Team")
+    #api_key = relationship("ApiKey")
+
+    __table_args__ = (
+        Index("idx_api_usage_team_created", "team_id"),
+        #Index("idx_api_usage_api_key_created", "api_key_id", "created_at"),
+    )

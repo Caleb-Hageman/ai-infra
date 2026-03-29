@@ -167,4 +167,8 @@ def downgrade() -> None:
     op.drop_table('api_keys')
     op.drop_table('teams')
     # ### end Alembic commands ###
+    op.execute("DROP TYPE IF EXISTS api_key_status")
+    op.execute("DROP TYPE IF EXISTS document_source_type")
+    op.execute("DROP TYPE IF EXISTS document_status")
+    op.execute("DROP TYPE IF EXISTS ingestion_status")
 
