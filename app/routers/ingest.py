@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_api_key
+from app.config import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, EMBEDDING_DIM
 from app.db import get_session
 from app.models import ApiKey, IngestionJob
 
@@ -22,8 +23,8 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 async def upload_file(
     project_id: UUID,
     file: UploadFile,
-    chunk_size: int = Query(2000, ge=100, le=8000),
-    chunk_overlap: int = Query(200, ge=0, le=1000),
+    chunk_size: int = Query(DEFAULT_CHUNK_SIZE, ge=100, le=512),
+    chunk_overlap: int = Query(DEFAULT_CHUNK_OVERLAP, ge=0, le=1000),
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
@@ -61,7 +62,7 @@ async def upload_file(
         chunks = rag_service.chunk_text(
             text, chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
-        await rag_service.ensure_dimension(1536)
+        await rag_service.ensure_dimension(EMBEDDING_DIM)
         vectors = await rag_service.embed_documents([chunk["content"] for chunk in chunks])
 
         chunk_payload = []
