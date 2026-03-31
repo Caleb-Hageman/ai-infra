@@ -11,8 +11,8 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT }}
   REGION: us-east1
-  ZONE: us-east1-b
-  VM_NAME: pg-instance-free
+  ZONE: us-east1-c
+  VM_NAME: pg-instance-free-20260331-141817
   IMAGE_NAME: us-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/api-registry/pgvector-db
 
 jobs:
