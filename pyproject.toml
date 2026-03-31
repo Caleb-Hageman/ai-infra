@@ -24,6 +24,7 @@ dependencies = [
     "pytest-cov>=6.0",
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0",
+    "redis>=7.4.0",
 ]
 
 [tool.pytest.ini_options]

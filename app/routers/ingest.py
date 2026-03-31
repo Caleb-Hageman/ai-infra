@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_api_key
 from app.config import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE, EMBEDDING_DIM
 from app.db import get_session
-from app.models import ApiKey, IngestionJob
+from app.models import ApiKey, IngestionJob, DocumentChunk, Document, Project
+
+from sqlalchemy import select
 
 from app.schemas.document import DocumentOut
 from app.services import gcs, document
@@ -88,3 +90,43 @@ async def upload_file(
         os.unlink(tmp_path)
 
     return doc
+
+@router.post("/{project_id}/repair-embeddings", status_code=200)
+async def repair_embeddings(
+    project_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    current_key: ApiKey = Depends(get_api_key)
+):
+    # 1. Securely fetch ONLY chunks belonging to this project and this team
+    stmt = (
+        select(DocumentChunk)
+        .join(Document, DocumentChunk.document_id == Document.id)
+        .join(Project, Document.project_id == Project.id)
+        .where(
+            Project.id == project_id,
+            Project.team_id == current_key.team_id,
+            DocumentChunk.embedding == None
+        )
+    )
+    
+    result = await session.execute(stmt)
+    chunks = result.scalars().all()
+    
+    if not chunks:
+        return {"message": "No NULL embeddings found for this project."}
+
+    # 2. Batch process to avoid Cloud Run memory/timeout limits
+    batch_size = 50
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i : i + batch_size]
+        texts = [c.content for c in batch]
+        
+        # This calls your mxbai-embed-large-v1 (1024 dims)
+        vectors = await rag_service.embed_documents(texts)
+        
+        for chunk, vector in zip(batch, vectors):
+            chunk.embedding = vector
+            
+        await session.commit()
+    
+    return {"message": f"Successfully updated {len(chunks)} chunks for project {project_id}."}
