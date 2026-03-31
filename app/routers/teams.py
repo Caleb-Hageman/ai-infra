@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_api_key, ADMIN_ID
 from app.db import get_session
 from app.models import ApiKey, ApiKeyStatus, Project, Team
+
+from app.services.redis_service import rate_limiter # remove later
 
 import logging
 
@@ -100,6 +102,23 @@ async def create_project(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
+    team_limits = [
+        (1000, 60),      # 21 requests per minute
+        (1000, 3600),  # 200 requests per hour
+        (6000, 86400) # 500 requests per day
+    ]
+
+    is_limited = await rate_limiter.is_rate_limited(
+        team_id=str(current_key.team_id), 
+        limits=team_limits
+    )
+
+    if is_limited:
+        raise HTTPException(
+            status_code=429, 
+            detail="Rate limit exceeded for one of your time windows (Min/Hour/Day)."
+        )
+    
     team_id = current_key.team_id
     
     team = await session.get(Team, team_id)

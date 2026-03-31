@@ -50,6 +50,8 @@ jobs:
       PROJECT_ID: ${{ secrets.GCP_PROJECT }}
       REGION: us-east1
       DATABASE_URL: postgresql+asyncpg://rag_user:${{ secrets.PG_PASSWORD }}@${{ secrets.DB_HOST }}:5432/rag_db
+      REDIS_HOST: ${{ secrets.DB_HOST }}
+      REDIS_PORT: 6379
       ADMIN_TEAM_ID: ${{ secrets.ADMIN_TEAM_ID }}
 
     permissions:
@@ -115,4 +117,6 @@ jobs:
             ${{ secrets.VLLM_BASE_URL != '' && format('VLLM_BASE_URL={0}', secrets.VLLM_BASE_URL) || '' }}
             SERVICE_ACCOUNT_EMAIL=${{ secrets.CLOUD_RUN_SERVICE_ACCOUNT }}
             DATABASE_URL=${{ env.DATABASE_URL }}
+            REDIS_HOST=${{ env.REDIS_HOST }}
+            REDIS_PORT=${{ env.REDIS_PORT }}
             ADMIN_TEAM_ID=${{ env.ADMIN_TEAM_ID }}
