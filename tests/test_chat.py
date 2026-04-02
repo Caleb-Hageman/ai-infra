@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -192,3 +193,28 @@ def test_no_rag_path_plain_prompt_when_neither_project_nor_team(
     mock_team_search.assert_not_called()
     assert len(captured) == 1
     assert captured[0] == "plain question"
+
+
+@pytest.mark.asyncio
+@patch("app.services.chat._get_id_token_headers", return_value={})
+@patch("app.services.chat.httpx.AsyncClient")
+async def test_warmup_vllm_posts_minimal_chat_completion(mock_client_cls, _mock_headers):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status = MagicMock()
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client_cls.return_value = mock_client
+
+    from app.services.chat import warmup_vllm
+
+    await warmup_vllm()
+
+    mock_client.post.assert_called_once()
+    url = mock_client.post.call_args[0][0]
+    payload = mock_client.post.call_args[1]["json"]
+    assert "/v1/chat/completions" in url
+    assert payload["max_tokens"] == 1
+    assert payload["messages"][0]["content"] == "."

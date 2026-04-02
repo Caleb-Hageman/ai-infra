@@ -1,82 +1,140 @@
-# Purpose: Ingest router tests (upload_file auth, invalid type, success with mocks).
+# Purpose: Ingest router — init signed PUT, complete, repair-embeddings.
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.auth import get_api_key
 from app.db import get_session
+from app.models import Document, DocumentSourceType, DocumentStatus
 
 from conftest import override_deps
 
 
-def test_upload_file_401_without_key(app_client):
-    project_id = uuid4()
+def test_init_upload_401(app_client):
     response = app_client.post(
-        f"/ingest/{project_id}/upload",
-        files={"file": ("test.pdf", b"content", "application/pdf")},
+        f"/ingest/{uuid4()}/upload",
+        json={"filename": "a.txt"},
     )
     assert response.status_code == 401
 
 
-def test_upload_file_415_for_invalid_file_type(app_client, fake_session, fake_api_key):
-    project_id = uuid4()
+def test_init_upload_415_bad_extension(app_client, fake_session, fake_api_key):
     key = fake_api_key()
 
     async def fake_get_api_key():
         return key
 
+    async def fake_get_session():
+        yield fake_session(None)
+
     with override_deps({
         get_api_key: fake_get_api_key,
-        get_session: fake_session(None),
+        get_session: fake_get_session,
     }):
         response = app_client.post(
-            f"/ingest/{project_id}/upload",
-            files={"file": ("virus.exe", b"x", "application/octet-stream")},
+            f"/ingest/{uuid4()}/upload",
+            json={"filename": "bad.exe"},
+            headers={"Authorization": "Bearer sk-test"},
         )
     assert response.status_code == 415
 
 
-@patch("app.routers.ingest.insert_document_chunks", new_callable=AsyncMock)
-@patch("app.routers.ingest.rag_service")
-@patch("app.routers.ingest.document.create_uploaded_document", new_callable=AsyncMock)
-@patch("app.routers.ingest.gcs.upload_file_stream")
-def test_upload_file_201_with_mocked_gcs_and_insert(
-    mock_gcs, mock_create_doc, mock_rag, mock_insert, app_client, fake_session, fake_api_key
-):
-    mock_gcs.return_value = "team/project/test.txt"
-    mock_doc = MagicMock()
-    mock_doc.id = uuid4()
-    mock_doc.team_id = uuid4()
-    mock_doc.project_id = uuid4()
-    mock_doc.title = "test.txt"
-    mock_doc.source_type = "upload"
-    mock_doc.gcs_uri = "team/project/test.txt"
-    mock_doc.status = "ready"
-    mock_create_doc.return_value = mock_doc
-
-    mock_rag.extract_text.return_value = "sample text"
-    mock_rag.chunk_text.return_value = [{"content": "sample text", "chunk_index": 0}]
-    mock_rag.ensure_dimension = AsyncMock(return_value=None)
-    mock_rag.embed_documents = AsyncMock(return_value=[[0.1] * 1536])
-
-    project_id = uuid4()
+@patch("app.routers.ingest.gcs.generate_signed_put_url", return_value="https://example.com/put")
+def test_init_upload_200(mock_sign, app_client, fake_api_key):
     key = fake_api_key()
+    project_id = uuid4()
 
     async def fake_get_api_key():
         return key
 
+    async def mock_refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+
+    mock_session = MagicMock()
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock(return_value=None)
+    mock_session.refresh = AsyncMock(side_effect=mock_refresh)
+
+    proj = MagicMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = proj
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    async def fake_get_session():
+        yield mock_session
+
     with override_deps({
         get_api_key: fake_get_api_key,
-        get_session: fake_session(None),
+        get_session: fake_get_session,
     }):
         response = app_client.post(
             f"/ingest/{project_id}/upload",
-            files={"file": ("test.txt", b"hello", "text/plain")},
+            json={"filename": "doc.txt", "content_type": "text/plain"},
+            headers={"Authorization": "Bearer sk-test"},
         )
-    assert response.status_code == 201
+    assert response.status_code == 200
     data = response.json()
-    assert data["title"] == "test.txt"
-    assert data["status"] == "ready"
-    mock_gcs.assert_called_once()
-    mock_create_doc.assert_called_once()
-    mock_insert.assert_called_once()
+    assert data["upload_url"] == "https://example.com/put"
+    assert "session_id" in data
+    assert data["expires_in_seconds"] > 0
+    mock_sign.assert_called_once()
+    mock_session.add.assert_called_once()
+    mock_session.commit.assert_called_once()
+
+
+@patch("app.routers.ingest._background_ingest", new_callable=AsyncMock)
+@patch("app.routers.ingest.gcs.verify_uploaded_blob_size", return_value=100)
+def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
+    key = fake_api_key()
+    project_id = uuid4()
+    session_id = uuid4()
+
+    async def fake_get_api_key():
+        return key
+
+    mock_us = MagicMock()
+    mock_us.gcs_path = "t/p/f.txt"
+    mock_us.filename = "f.txt"
+    mock_us.mime_type = "text/plain"
+    mock_us.completed_at = None
+    mock_us.expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_us
+
+    mock_session = MagicMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.commit = AsyncMock(return_value=None)
+    mock_session.refresh = AsyncMock()
+
+    doc = Document(
+        id=uuid4(),
+        team_id=key.team_id,
+        project_id=project_id,
+        title="f.txt",
+        source_type=DocumentSourceType.upload,
+        gcs_uri="t/p/f.txt",
+        mime_type="text/plain",
+        status=DocumentStatus.processing,
+    )
+
+    async def fake_get_session():
+        yield mock_session
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_get_session,
+    }), patch(
+        "app.routers.ingest.create_uploaded_document",
+        new_callable=AsyncMock,
+        return_value=doc,
+    ):
+        response = app_client.post(
+            f"/ingest/{project_id}/upload/{session_id}/complete",
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 202
+    assert response.json()["status"] == "processing"
+    mock_verify.assert_called_once_with("t/p/f.txt")

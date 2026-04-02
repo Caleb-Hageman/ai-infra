@@ -102,4 +102,5 @@ def mock_vllm_client(captured_prompt=None):
 @pytest.fixture
 def app_client():
     """TestClient for the FastAPI app. Use override_deps() to inject mocks."""
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client

@@ -33,6 +33,8 @@ spec:
       - env:
         - name: GCS_BUCKET_NAME
           value: ai_infra_share
+        - name: SERVICE_ACCOUNT_EMAIL
+          value: cloud-run-runtime@indigo-bedrock-487015-g2.iam.gserviceaccount.com
         - name: HF_TOKEN
           value: REPLACE_AT_DEPLOY
         - name: DATABASE_URL

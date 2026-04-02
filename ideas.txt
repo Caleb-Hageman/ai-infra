@@ -1,94 +1,51 @@
 Implementation Plan: Upload Reliability, Latency, and RAG Guardrails
 =====================================================================
 
-Goal
-----
-Reduce upload failures/latency, support large files reliably, and
-prevent low-confidence RAG answers with misleading citations.
+Project ID: indigo-bedrock-487015-g2 
+region: us-east1
+bucket name: ai_infra_share
+bucket details: dedicated to this app (despite the name)
+who owns the bucket: i do, or rather my gcp project does. the product teams never write with their own credentials. as it, everything flows product->api->{whatever the ingest endpoint does with the data it is passed}
+service accounts: serviceAccountName: cloud-run-runtime@indigo-bedrock-487015-g2.iam.gserviceaccount.com
+vpc / networking: product apps run on VMs on peered VPCs; ILB + forwarding
+  rules; clients call the API at http://10.0.1.5/ (plain HTTP to our API).
+  egress check done (2026-04): ilb-tester VM — DNS + TLS to
+  storage.googleapis.com, gcloud sign-url PUT, curl PUT exit 0 — direct
+  signed PUT is viable from that path. repeat for any other peered network
+  if behavior differs.
+cors on the bucket: ["*"]
+upload path: hard cap 16 MiB; .pdf/.txt/.md/.markdown; single signed PUT
+  (no resumable v1);
+  stream read from GCS in worker with bounded buffer; after finalize, bg task
+  or internal POST on same Cloud Run — no new GCP products.
+object lifecycle: keep current behavior in code; bucket retention 90d via
+  gcs lifecycle rules; stale postgres rows are acceptable.
+content type and checksum: best effort, lowest-change option.
+http vs https: API stays plain HTTP on the ILB; GCS signed URLs are HTTPS
+  (required by Google) — nothing else needed from the operator here.
+endpoints i want: i would prefer not to add endpoints. i would prefer just to alter existing ones. whatever will have the least impact on what the clients do but the most impact on how well itworks for them, that's what i want. if we have to add something then so be it but minimal additions and the lcosest we can get to just leaving them the exact same commands
+auth: vital that we have the same api keys as today
+metadata: same as today, idfk man, come on
+push vs pull: idfk man, see above about endpoints. i don't want to change the way they make calls, so whatever keeps it as close as possible to the current setup
+where state lives: oof, it means adding a postgres table? fuck. ok, we can add one...i guess...fine. state can live in a new postgres table.
+timeouts: on the long side of normal
+who runs cleanup: yeesh idk. uh. gcs lifecycle rules only.
+where ingest worker runs: same cloud run service i think
+trigger: http from api i think
+scaling: idfk, whatever man
+stream vs download: stream from GCS with bounded buffer; max object 16 MiB.
+current inject path: it's all in here! the source of truth document? i think it's this readme. possibly alembic/versions/78098b94ff86_initial_schema.py? w/e. 
+file types: .pdf, .txt, .md, .markdown (legal + docs).
+retention: 90d gcs lifecycle; stale db rows ok; project horizon ~45 days.
+pii: absolutely do no fucking care. whatever the existing set up is, just keep that. 
+cost: should stay at or around 0. if it'll run me more than like 10 or 15 dollars it is a non-starter. 
 
-
-Current architecture (as understood)
---------------------------------------
-- Client sends the **full file** to the API.
-- The API runs **server-side AI chunking** (e.g. Hugging Face–based)
-  on that payload, then **persists chunks** (and downstream embed/index
-  steps as today).
-
-Implications for the optimal solution
--------------------------------------
-- **Chunking stays server-side.** Client-side “split into N KB chunks”
-  does **not** replace semantic/AI chunking; the optimal path is still
-  **get the full object into durable storage (GCS) reliably**, then run
-  the **same** chunking + embed + index pipeline in a **worker**, not on
-  the synchronous upload HTTP request.
-- **Do not chain upload + HF chunking + embed in one request** for
-  large files: timeouts, memory, and cold model load dominate. After GCS
-  landing, enqueue a job that **downloads (or streams) from GCS → runs
-  existing chunker → stores chunks**.
-- **Parallel upload of many client chunks** is a poor fit here (chunks
-  are defined by the model, not fixed byte ranges). Prefer **GCS
-  resumable/multipart for the single file**, then one **ingestion job**
-  that owns chunking.
-- **Warmup** should include whatever the ingest path needs (HF
-  tokenizer/model load, first chunk pass) if those are cold-start
-  contributors.
-- **Worker sizing**: large files + HF inference may need more RAM/CPU
-  (or a dedicated ingest runtime) than the thin API.
-
-
-Feature 1: Upload Warmup + Retry Protocol
------------------------------------------
-Task 1.1: Implement explicit warmup flow
-- Subtask: Add `GET /warmup` endpoint that initializes DB client,
-  storage client, and any lazy dependencies.
-- Subtask: Add startup probe that only reports ready after warmup
-  checks pass.
-- Subtask: Add background warmers (scheduled/internal) that call
-  warmup endpoint periodically.
-- Note: Product teams can also send a lightweight init request from
-  their process startup to warm paths on their side; no server change
-  required for that pattern.
-
-Task 1.2: Add client/server retry protocol for transient failures
-- Subtask: Define retry-safe upload lifecycle endpoints (init/finalize)
-  with idempotency keys.
-- Subtask: Implement exponential backoff + jitter policy on retryable
-  failures.
-- Subtask: Add dedupe behavior so repeated finalize calls do not
-  duplicate records.
-
-
-Feature 2: Large File Uploads via Direct-to-GCS
-------------------------------------------------
-Task 2.1: Move transfer path off API body handling
-- Subtask: API issues signed URL or resumable upload session.
-- Subtask: Client uploads file directly to GCS (not proxied through
-  API).
-- Subtask: API receives completion callback/event and marks upload
-  state.
-- Subtask: **Ingest worker** reads the GCS object and runs the
-  **existing AI chunking** step (then embed/index as today); behavior
-  matches current semantics, only the **trigger and placement** move off
-  the upload request.
-
-Task 2.2: Use native multipart/resumable APIs for large files
-- Subtask: Define size threshold for resumable/multipart path.
-- Subtask: Enable resume support after interrupted uploads.
-- Subtask: Validate object integrity with checksum before processing.
-
-Task 2.3: Keep large-file reliability controls
-- Subtask: Supported content type policy (as needed).
-- Subtask: Track upload session states (`initiated`, `uploading`,
-  `uploaded`, `finalized`, `failed`).
-- Subtask: Add cleanup for abandoned/incomplete sessions.
-
-Task 2.4: Chunking pipeline placement
-- Subtask: Refactor so HF (or equivalent) chunking runs in
-  **ingest/async** context, reading from GCS (stream or bounded buffer),
-  not inline on multipart upload handler.
-- Subtask: Preserve chunk boundaries and storage format compatible with
-  current RAG index expectations.
-
+Feature 2 — implemented (v1)
+----------------------------
+- POST /ingest/{project_id}/upload (JSON) mints v4 signed PUT; upload_sessions
+  table; POST .../complete runs chunk/embed in BackgroundTasks.
+- Alembic: revision a1b2c3d4e5f6 (upload_sessions).
+- communication.txt updated for product teams.
 
 Feature 3: Fast Control Plane + Heavy Data Plane Split
 ------------------------------------------------------
@@ -107,7 +64,6 @@ Task 3.2: Separate services by workload
   ingestion/indexing jobs.
 - Subtask: Ensure independent scaling/operational ownership per service.
 
-
 Feature 4: Async Ingestion Pipeline
 -----------------------------------
 Task 4.1: Queue-based ingestion
@@ -124,7 +80,6 @@ Task 4.2: Event-driven processing
   double-process).
 - Subtask: Add dead-letter/retry path for failed jobs.
 
-
 Feature 5: Chat Runtime Execution Optimization
 ----------------------------------------------
 Task 5.1: Reduce warm-path latency
@@ -134,81 +89,13 @@ Task 5.1: Reduce warm-path latency
 - Subtask: Add lightweight caching for repeated retrieval/model
   sub-results where applicable.
 
-
-Feature 6: RAG Low-Retrieval Hallucination Guardrails
-------------------------------------------------------
-Task 6.1: Retrieval confidence gates
-- Subtask: Add `top1_similarity_min` threshold.
-- Subtask: Add `citation_similarity_min` and minimum count of valid
-  citations.
-- Subtask: If thresholds fail, force abstention response.
-
-Task 6.2: Abstention and citation policy
-- Subtask: Return generic "insufficient indexed information" response
-  when confidence is low.
-- Subtask: Do not include citations below threshold.
-- Subtask: Disable "what I can answer instead" fallback for
-  low-confidence retrievals.
-
-Task 6.3: Two-stage retrieval quality control
-- Subtask: Retrieve broad candidate set.
-- Subtask: Rerank and apply strict cutoff before generation context
-  assembly.
-- Subtask: Only allow claims backed by retained citations.
-
-Task 6.4: Validation rollout
-- Subtask: Run shadow mode (log thresholds, no behavior change) first.
-- Subtask: Compare abstention rate vs incorrect-answer rate on
-  evaluation set.
-- Subtask: Enable hard gating after threshold calibration.
-
-
 Delegation Order (Suggested)
 ----------------------------
-1) Feature 6 (RAG guardrails shadow mode)
-2) Feature 1 (warmup/retry) + Feature 2 (direct-to-GCS upload path)
 3) Feature 4 (async ingestion + event-driven triggers)
 4) Feature 3 (service split)
 5) Feature 5 (chat runtime optimization)
-
 
 Definition of Done (Per Feature)
 --------------------------------
 - Code merged with tests for new logic and error paths.
   - Note: WITH TESTS is in the dod. WITH TESTS.
-- Before/after spot-check on latency/failure for the touched flows.
-
-
-Quick liners (one line per thing added)
----------------------------------------
-- Warmup flow (`GET /warmup`, readiness probe, background warmers;
-  include ingest/model if needed)
-- Client/server retry protocol (idempotent init/finalize, backoff +
-  jitter, dedupe)
-- Move transfer path off API body (signed URL or resumable session to
-  GCS)
-- Direct client upload to GCS (no API proxy for file bytes)
-- Upload completion via callback/event and state updates in API
-- Large-file path: GCS multipart/resumable + resume after interrupt +
-  checksum before processing
-- **Ingest worker: GCS object → existing HF/AI chunking → chunks stored
-  → embed/index (async)**
-- Refactor: AI chunking not inline on upload HTTP handler for large
-  inputs
-- Upload session lifecycle states + cleanup of abandoned/incomplete
-  sessions
-- Supported content type policy (where needed)
-- Control plane vs data plane responsibilities split
-- Immediate async job/session IDs for progress tracking
-- Separate `chat-service` and `ingest-service` by workload
-- Queue-based ingestion (publish job on complete, worker pipeline,
-  pollable status)
-- GCS object finalize event drives ingestion job creation (idempotent +
-  DLQ/retry)
-- Chat warm-path tuning (stage timing, parallel I/O, light caching)
-- RAG similarity thresholds + forced abstention when below bar
-- RAG citation policy (no junk citations, no “what I can answer instead”
-  on low confidence)
-- Two-stage retrieval (recall → rerank → strict cutoff before
-  generation)
-- RAG guardrail rollout (shadow mode → calibrate → hard gating)
