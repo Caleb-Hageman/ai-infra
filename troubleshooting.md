@@ -12,7 +12,7 @@ On Sunday (3/29/2026) around 5:00 PM EST, following tests to enhance our RAG cap
 ### Why it impacted other teams and systems
 Because the virtual machine was scaled to zero, the database essentially disappeared. This created a bottleneck for the product teams: whenever they made an API request to our chat endpoint, they would hit a timeout error. Our FastAPI Cloud Run instance has to wait for a response from the PGVector database before it can send data to the vLLM Cloud Run instance (the one containing the GPU and LLM). Without that database response, the AI couldn't generate anything.
 
-Problem Identification
+### Problem Identification
 
 On Tuesday (3/31/2026) around 9:30 AM EST, the AI Infra team was attempting to update the service to add rate limiting. We realized then that we couldn't connect to the e2-micro instance. After investigating the GCP UI, we found that the status of our machine was set to "Stopped."
 
