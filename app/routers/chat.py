@@ -18,7 +18,7 @@ async def chat(
 ):
     team_limits = [
         (21, 60),      # 21 requests per minute
-        (200, 3600),  # 200 requests per hour
+        (100, 3600),  # 100 requests per hour
         (500, 86400) # 500 requests per day
     ]
 
