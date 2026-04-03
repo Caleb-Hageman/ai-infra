@@ -1,0 +1,116 @@
+Architecture comparison: stage (candidate) vs prod (baseline)
+============================================================
+
+Goal
+----
+Decide if the stage deployment is worth promoting by measuring the same
+workloads against prod (old revision) and stage (new revision), with warmup
+handled explicitly so results are comparable and not dominated by cold starts.
+
+Environments
+------------
+- BASELINE_URL: prod API base (HTTPS, no trailing slash).
+- CANDIDATE_URL: stage API base.
+- API key(s) with access to the same team/project on both (or separate
+  projects created the same way on each side).
+- PROJECT_ID (UUID) per environment, valid for that key.
+- Record for each run: date/time (UTC), optional git SHA or Cloud Run revision
+  if you have it.
+
+Constants to fix across both runs
+---------------------------------
+- Same N files: generate once locally (or use fixed seeds) so byte sizes and
+  filenames match on prod and stage.
+- Same chat prompts and same project_id / team_id usage (RAG on vs plain).
+- Same network: ideally same machine and network path; note VPN or location if
+  it might differ between sessions.
+- Do not change stage/prod config between the two runs.
+
+What to measure (uploads)
+-------------------------
+For each file i = 1..N:
+
+  - size_bytes (or label: e.g. 10 KiB, 500 KiB, 2 MiB).
+  - t_init_ms: POST .../ingest/{project_id}/upload until response (signed URL).
+  - t_put_ms: HTTP PUT of file body to the signed URL (client-side; includes
+    GCS latency).
+  - t_complete_ms: POST .../complete (or whatever completes the session) until
+    2xx.
+  - t_upload_total_ms: wall time from start of init through end of complete
+    for that file (single-threaded per file is fine; the point is comparable
+    totals).
+
+Optional (only if you need end-to-end ingest latency): t_indexed_ms = time until
+the document is visible in search/RAG (define one check, e.g. query or chat
+with a unique string from that file). Keep definition identical on prod and
+stage.
+
+What to measure (chat)
+----------------------
+Use POST /api/v1/chat with JSON body your app expects (e.g. question, optional
+project_id, optional system_prompt).
+
+For each scenario, run M repeats (e.g. M = 10 or 20):
+
+  - scenario: plain prompt (no RAG) vs RAG (project_id set, after chunks exist).
+  - t_chat_ms: client wall time from request start until full response received
+    (total latency). Optional: log first-byte time if your client supports it.
+
+Discard the first 1–2 chat calls per scenario as burn-in if you see outliers;
+record whether you discarded and how many.
+
+Warmup and run order (manual gap between prod and stage)
+--------------------------------------------------------
+You handle the ~15 minute gap between runs manually so boxes can cool and you
+avoid overlapping load.
+
+Run A — Baseline (prod, “old”, unwarmed)
+  1. Do not call GET /warmup before the first upload. First request pays cold
+     start; that is intentional for this arm.
+  2. Run the full upload battery (N files, sequential or defined pattern).
+  3. Run the chat battery (plain + RAG as defined).
+  4. Save results as run A (see tables below).
+
+  (Wait ~15 minutes, or your chosen cool-down.)
+
+Run B — Candidate (stage, “new”)
+  1. GET {CANDIDATE_URL}/warmup until 200 and body indicates components OK (or
+     document what you accept if 503 retry policy).
+  2. Optional: one throwaway chat or tiny upload to absorb residual variance;
+     do not count these in tables.
+  3. Same upload battery as Run A (same files, same order).
+  4. Same chat battery as Run A.
+  5. Save results as run B.
+
+If you later need a “cold candidate” datapoint, repeat GET /warmup only on
+baseline logic: e.g. scale-to-zero stage, wait, then Run A-style without
+warmup on stage once — separate row/table so it does not mix with the fair
+warm-vs-warm comparison.
+
+Reporting — upload table (one row per file per run)
+----------------------------------------------------
+Columns: run_id | env | file_id | size_bytes | t_init_ms | t_put_ms |
+t_complete_ms | t_upload_total_ms | (optional t_indexed_ms)
+
+Reporting — chat table (aggregated per scenario)
+------------------------------------------------
+Columns: run_id | env | scenario | n_samples | median_ms | p95_ms | min_ms |
+max_ms | notes (e.g. burn-in discarded)
+
+Or one row per request if you prefer raw data for spreadsheet pivoting.
+
+Interpretation (quick)
+----------------------
+- Compare upload t_* columns between A and B for same file_id: large deltas may
+  be network or cold start, not code — note first-file vs steady-state.
+- Chat: compare medians/p95 for same scenario; RAG path is where recent service
+  changes matter most.
+- If prod was cold on first uploads and stage was warmed, interpret upload
+  totals cautiously; repeat with both warmed if the decision hinges on upload
+  speed alone.
+
+Artifacts to keep
+-----------------
+- Raw CSV or spreadsheet with timestamps per request.
+- Short note: who ran it, URLs (redact keys), N, M, file size list, and any
+  anomalies (deploys, errors, retries).

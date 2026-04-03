@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# Candidate (stage) benchmark: GET /warmup, then upload + chat timings.
+# Requires: curl, jq, dd. GNU date for ms timestamps in the summary line.
+#
+# Usage:
+#   export API_BASE_URL="https://your-stage-host"   # no trailing slash
+#   export API_KEY="..."                            # Bearer token
+#   export PROJECT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+#   ./testNew
+#
+# Optional:
+#   UPLOAD_SIZES        space-separated byte sizes (default: 10240 524288 2097152)
+#   CHAT_REPEATS        per scenario (default: 15)
+#   CHAT_DISCARD_FIRST  burn-in drops per scenario (default: 2)
+#   WARMUP_MAX_TRIES    retries for GET /warmup on 503 (default: 12)
+#   WARMUP_RETRY_SEC    sleep between retries (default: 10)
+
+set -euo pipefail
+
+API_BASE_URL="${API_BASE_URL:-}"
+API_KEY="${API_KEY:-}"
+PROJECT_ID="${PROJECT_ID:-}"
+UPLOAD_SIZES="${UPLOAD_SIZES:-10240 524288 2097152}"
+CHAT_REPEATS="${CHAT_REPEATS:-15}"
+CHAT_DISCARD_FIRST="${CHAT_DISCARD_FIRST:-2}"
+WARMUP_MAX_TRIES="${WARMUP_MAX_TRIES:-12}"
+WARMUP_RETRY_SEC="${WARMUP_RETRY_SEC:-10}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+command -v curl >/dev/null || die "curl not found"
+command -v jq >/dev/null || die "jq not found"
+
+[[ -n "$API_BASE_URL" ]] || die "set API_BASE_URL (e.g. https://stage.example.com)"
+[[ -n "$API_KEY" ]] || die "set API_KEY"
+[[ -n "$PROJECT_ID" ]] || die "set PROJECT_ID"
+
+BASE="${API_BASE_URL%/}"
+
+run_id="candidate-$(date -u +%Y%m%dT%H%M%SZ)"
+echo "# testNew run_id=$run_id"
+echo "# API_BASE_URL=$BASE PROJECT_ID=$PROJECT_ID"
+echo ""
+
+warmup_ok=0
+for ((i = 1; i <= WARMUP_MAX_TRIES; i++)); do
+  code=$(curl -sS -o /tmp/testnew_warmup.json -w "%{http_code}" \
+    -H "Accept: application/json" \
+    "$BASE/warmup") || true
+  if [[ "$code" == "200" ]]; then
+    warmup_ok=1
+    echo "warmup: HTTP $code"
+    jq -c . /tmp/testnew_warmup.json 2>/dev/null || cat /tmp/testnew_warmup.json
+    echo ""
+    break
+  fi
+  echo "warmup: HTTP $code (try $i/$WARMUP_MAX_TRIES), sleeping ${WARMUP_RETRY_SEC}s" >&2
+  sleep "$WARMUP_RETRY_SEC"
+done
+[[ "$warmup_ok" == "1" ]] || die "GET /warmup did not return 200"
+
+sec_to_ms() {
+  awk -v s="$1" 'BEGIN { printf "%.0f", s * 1000 }'
+}
+
+do_upload_one() {
+  local size_bytes="$1"
+  local name="bench_${size_bytes}.txt"
+  local f
+  f=$(mktemp)
+  if command -v truncate >/dev/null 2>&1; then
+    : >"$f"
+    truncate -s "$size_bytes" "$f"
+  else
+    dd if=/dev/zero of="$f" bs=1 count=0 seek="$size_bytes" 2>/dev/null
+  fi
+
+  local init_t init_http init_meta
+  init_meta=$(curl -sS -X POST \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$(jq -n --arg fn "$name" '{filename:$fn, content_type:"text/plain"}')" \
+    -o /tmp/testnew_init.json -w "%{http_code}|%{time_total}" \
+    "$BASE/ingest/${PROJECT_ID}/upload") || die "init upload failed"
+  init_http="${init_meta%%|*}"
+  init_t="${init_meta##*|}"
+  [[ "$init_http" == "200" ]] || {
+    echo "upload init HTTP $init_http:" >&2
+    cat /tmp/testnew_init.json >&2
+    die "init upload expected 200"
+  }
+  if ! jq -e .upload_url /tmp/testnew_init.json >/dev/null 2>&1; then
+    echo "upload init failed response:" >&2
+    cat /tmp/testnew_init.json >&2
+    die "missing upload_url"
+  fi
+  local upload_url session_id
+  upload_url=$(jq -r .upload_url /tmp/testnew_init.json)
+  session_id=$(jq -r .session_id /tmp/testnew_init.json)
+  local init_ms put_ms complete_ms total_ms
+  init_ms=$(sec_to_ms "$init_t")
+
+  local put_t
+  put_t=$(curl -sS -f -X PUT -T "$f" \
+    -H "Content-Type: text/plain" \
+    -o /dev/null -w "%{time_total}" \
+    "$upload_url") || die "GCS PUT failed"
+  put_ms=$(sec_to_ms "$put_t")
+
+  local comp_meta comp_http comp_t
+  comp_meta=$(curl -sS -X POST \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -o /tmp/testnew_complete.json -w "%{http_code}|%{time_total}" \
+    "$BASE/ingest/${PROJECT_ID}/upload/${session_id}/complete") || die "complete failed"
+  comp_http="${comp_meta%%|*}"
+  comp_t="${comp_meta##*|}"
+  [[ "$comp_http" == "202" ]] || {
+    echo "complete HTTP $comp_http:" >&2
+    cat /tmp/testnew_complete.json >&2
+    die "complete expected 202"
+  }
+  complete_ms=$(sec_to_ms "$comp_t")
+
+  rm -f "$f"
+
+  local sum
+  sum=$(awk -v a="$init_ms" -v b="$put_ms" -v c="$complete_ms" 'BEGIN { print a + b + c }')
+  total_ms=$sum
+
+  echo -e "upload\t${size_bytes}\t${init_ms}\t${put_ms}\t${complete_ms}\t${total_ms}"
+}
+
+echo "# --- uploads (TSV: phase size_bytes t_init_ms t_put_ms t_complete_ms t_total_ms)"
+for sz in $UPLOAD_SIZES; do
+  do_upload_one "$sz"
+done
+echo ""
+
+chat_series() {
+  local label="$1"
+  local body_json="$2"
+  local k
+  for ((k = 1; k <= CHAT_REPEATS; k++)); do
+    local t
+    local chat_meta chat_http t
+    chat_meta=$(curl -sS -X POST \
+      -H "Authorization: Bearer ${API_KEY}" \
+      -H "Content-Type: application/json" \
+      -d "$body_json" \
+      -o /tmp/testnew_chat.json -w "%{http_code}|%{time_total}" \
+      "$BASE/api/v1/chat") || die "chat failed"
+    chat_http="${chat_meta%%|*}"
+    t="${chat_meta##*|}"
+    [[ "$chat_http" == "200" ]] || {
+      echo "chat HTTP $chat_http:" >&2
+      cat /tmp/testnew_chat.json >&2
+      die "chat expected 200"
+    }
+    local ms
+    ms=$(sec_to_ms "$t")
+    if [[ "$k" -le "$CHAT_DISCARD_FIRST" ]]; then
+      echo "# chat burn-in $label #$k ${ms}ms (discarded)" >&2
+      continue
+    fi
+    echo -e "chat\t${label}\t${k}\t${ms}"
+  done
+}
+
+plain_json=$(jq -n --arg q "Reply with one word: ping." '{question:$q}')
+rag_json=$(jq -n --arg q "What information is in the uploaded documents?" --arg pid "$PROJECT_ID" \
+  '{question:$q, project_id:$pid}')
+
+echo "# --- chat (TSV: phase scenario repeat_index t_ms; burn-in discarded)"
+chat_series "plain" "$plain_json"
+chat_series "rag" "$rag_json"
+
+echo ""
+echo "# done run_id=$run_id"
+echo "# Paste TSV lines into a spreadsheet; filter lines starting with #"
