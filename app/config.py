@@ -1,3 +1,5 @@
+# Purpose: Central config — embeddings, vLLM, GCS upload limits.
+
 import os
 
 EMBEDDING_MODEL: str = "mixedbread-ai/mxbai-embed-large-v1"

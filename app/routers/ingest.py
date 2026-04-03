@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,6 +127,7 @@ async def complete_upload(
     project_id: UUID,
     session_id: UUID,
     background_tasks: BackgroundTasks,
+    response: Response,
     chunk_size: int = Query(DEFAULT_CHUNK_SIZE, ge=100, le=512),
     chunk_overlap: int = Query(DEFAULT_CHUNK_OVERLAP, ge=0, le=1000),
     current_key: ApiKey = Depends(get_api_key),
@@ -186,6 +187,8 @@ async def complete_upload(
         chunk_overlap,
     )
 
+    response.headers["X-Document-Id"] = str(doc.id)
+    response.headers["X-Upload-Session-Id"] = str(session_id)
     return doc
 
 

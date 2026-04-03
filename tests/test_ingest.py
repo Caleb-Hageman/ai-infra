@@ -137,4 +137,13 @@ def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
         )
     assert response.status_code == 202
     assert response.json()["status"] == "processing"
+    assert response.headers.get("X-Document-Id") == str(doc.id)
+    assert response.headers.get("X-Upload-Session-Id") == str(session_id)
     mock_verify.assert_called_once_with("t/p/f.txt")
+    mock_bg.assert_called_once_with(
+        doc.id,
+        "t/p/f.txt",
+        ".txt",
+        256,
+        50,
+    )
