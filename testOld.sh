@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
-# Baseline (prod / old revision) benchmark: no warmup, then upload + chat timings.
-# This revision uses multipart POST /ingest/{project_id}/upload (single request per file;
-# GCS + chunk + embed happen in that handler). There is no GET /warmup on this API.
+# Multipart upload + optional chat timings (POST /ingest/{project_id}/upload → 201).
 #
-# TSV columns match testNew for spreadsheets: t_init_ms holds full multipart time;
-# t_put_ms and t_complete_ms are 0 (not applicable). t_total_ms equals t_init_ms.
+# FastAPI Query() reads chunk_* from the URL only — we omit ?chunk_size= by default (see USE_QUERY_PARAMS).
 #
-# Requires: curl, jq. truncate or dd for test files.
+# Upload tests:
+#   Default: for each size in UPLOAD_SIZES, build a temp .txt of that many bytes using
+#   repetitive text (yes | head -c) so extract/chunk/embed sees real text, not NUL padding.
+#   Optional: UPLOAD_SINGLE_FILE=/path/to/foo.txt — skip generated sizes; upload that file once
+#   (or UPLOAD_REPEAT times).
 #
-# Usage:
-#   export API_BASE_URL="https://your-prod-host"   # no trailing slash
-#   export API_KEY="..."                          # Bearer token
-#   export PROJECT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-#   ./testOld.sh
-#
-# Optional:
-#   UPLOAD_SIZES        space-separated byte sizes (default: 10240 524288 2097152)
-#   CHAT_REPEATS        per scenario (default: 15)
-#   CHAT_DISCARD_FIRST  burn-in drops per scenario (default: 2)
+# Required: API_BASE_URL  API_KEY  PROJECT_ID
+# Optional: UPLOAD_SIZES  UPLOAD_SINGLE_FILE  UPLOAD_REPEAT  USE_QUERY_PARAMS  SKIP_CHAT  CHAT_*
+# Upload/chat errors log to stderr and the script continues (no exit on failed request).
+# Chat: bench_chat.inc.sh must sit next to this script (shared with testNew; POST body matches ChatRequest).
 
 set -euo pipefail
 
@@ -25,6 +20,12 @@ API_BASE_URL="${API_BASE_URL:-}"
 API_KEY="${API_KEY:-}"
 PROJECT_ID="${PROJECT_ID:-}"
 UPLOAD_SIZES="${UPLOAD_SIZES:-10240 524288 2097152}"
+UPLOAD_SINGLE_FILE="${UPLOAD_SINGLE_FILE:-}"
+CHUNK_SIZE="${CHUNK_SIZE:-1000}"
+CHUNK_OVERLAP="${CHUNK_OVERLAP:-100}"
+USE_QUERY_PARAMS="${USE_QUERY_PARAMS:-0}"
+UPLOAD_REPEAT="${UPLOAD_REPEAT:-1}"
+SKIP_CHAT="${SKIP_CHAT:-0}"
 CHAT_REPEATS="${CHAT_REPEATS:-15}"
 CHAT_DISCARD_FIRST="${CHAT_DISCARD_FIRST:-2}"
 
@@ -33,99 +34,103 @@ die() { echo "error: $*" >&2; exit 1; }
 command -v curl >/dev/null || die "curl not found"
 command -v jq >/dev/null || die "jq not found"
 
-[[ -n "$API_BASE_URL" ]] || die "set API_BASE_URL (e.g. https://api.example.com)"
+[[ -n "$API_BASE_URL" ]] || die "set API_BASE_URL (e.g. http://10.0.1.5)"
 [[ -n "$API_KEY" ]] || die "set API_KEY"
 [[ -n "$PROJECT_ID" ]] || die "set PROJECT_ID"
 
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  [[ -f "$UPLOAD_SINGLE_FILE" ]] || die "UPLOAD_SINGLE_FILE not found: $UPLOAD_SINGLE_FILE"
+fi
+
 BASE="${API_BASE_URL%/}"
+if [[ "$USE_QUERY_PARAMS" == "1" ]]; then
+  UPLOAD_URL="${BASE}/ingest/${PROJECT_ID}/upload?chunk_size=${CHUNK_SIZE}&chunk_overlap=${CHUNK_OVERLAP}"
+else
+  UPLOAD_URL="${BASE}/ingest/${PROJECT_ID}/upload"
+fi
 
 run_id="baseline-$(date -u +%Y%m%dT%H%M%SZ)"
 echo "# testOld run_id=$run_id"
-echo "# revision=old (multipart upload) API_BASE_URL=$BASE PROJECT_ID=$PROJECT_ID"
-echo "# no GET /warmup; first request is cold per testing.txt"
+echo "# API_BASE_URL=$BASE PROJECT_ID=$PROJECT_ID USE_QUERY_PARAMS=$USE_QUERY_PARAMS"
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  echo "# upload mode: single file $UPLOAD_SINGLE_FILE x${UPLOAD_REPEAT}"
+else
+  echo "# upload mode: generated text files UPLOAD_SIZES=$UPLOAD_SIZES"
+fi
 echo ""
 
 sec_to_ms() {
   awk -v s="$1" 'BEGIN { printf "%.0f", s * 1000 }'
 }
 
-do_upload_one() {
-  local size_bytes="$1"
-  local name="bench_${size_bytes}.txt"
-  local f
-  f=$(mktemp)
-  if command -v truncate >/dev/null 2>&1; then
-    : >"$f"
-    truncate -s "$size_bytes" "$f"
-  else
-    dd if=/dev/zero of="$f" bs=1 count=0 seek="$size_bytes" 2>/dev/null
-  fi
+# Repetitive lines from yes(1) — valid UTF-8 text for extract_text; not NUL-filled.
+# With pipefail, yes exits 141 (SIGPIPE) after head finishes; that non-zero would trip set -e.
+write_generated_txt() {
+  local path="$1" size="$2"
+  local actual
+  [[ "$size" =~ ^[0-9]+$ ]] && (( size >= 1 )) || die "UPLOAD_SIZES must be positive integers"
+  yes | head -c "$size" >"$path" || true
+  actual=$(wc -c <"$path")
+  [[ "$actual" -eq "$size" ]] || die "generated file size mismatch: expected $size bytes, got $actual"
+}
 
-  local meta http t
-  meta=$(curl -sS -X POST \
+do_upload() {
+  local path="$1"
+  local form_filename="$2"
+  local label="$3"
+  local meta http t total_ms
+  if ! meta=$(curl -sS -X POST \
     -H "Authorization: Bearer ${API_KEY}" \
-    -F "file=@${f};filename=${name};type=text/plain" \
+    -F "file=@${path};filename=${form_filename}" \
+    -F "chunk_size=${CHUNK_SIZE}" \
+    -F "chunk_overlap=${CHUNK_OVERLAP}" \
     -o /tmp/testold_upload.json -w "%{http_code}|%{time_total}" \
-    "$BASE/ingest/${PROJECT_ID}/upload") || die "multipart upload failed"
+    "$UPLOAD_URL"); then
+    echo "upload curl error ($label)" >&2
+    echo -e "upload\t${label}\tFAIL\tcurl\t-\t-"
+    return 1
+  fi
   http="${meta%%|*}"
   t="${meta##*|}"
-  rm -f "$f"
 
-  [[ "$http" == "201" ]] || {
-    echo "upload HTTP $http:" >&2
+  if [[ "$http" != "201" ]]; then
+    echo "upload HTTP $http ($label):" >&2
     cat /tmp/testold_upload.json >&2
-    die "multipart upload expected 201"
-  }
+    echo -e "upload\t${label}\tFAIL\t${http}\t-\t-"
+    return 1
+  fi
 
-  local total_ms
   total_ms=$(sec_to_ms "$t")
-  echo -e "upload\t${size_bytes}\t${total_ms}\t0\t0\t${total_ms}"
+  echo -e "upload\t${label}\t${total_ms}\t0\t0\t${total_ms}"
+  return 0
 }
 
-echo "# --- uploads (TSV: phase size_bytes t_init_ms t_put_ms t_complete_ms t_total_ms)"
-echo "# old revision: t_init_ms = full multipart POST; put/complete columns unused (0)"
-for sz in $UPLOAD_SIZES; do
-  do_upload_one "$sz"
-done
+echo "# --- uploads (TSV: success: t_* ms; FAIL rows: t_init_ms=FAIL, t_put_ms=http or curl)"
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  for ((i = 1; i <= UPLOAD_REPEAT; i++)); do
+    do_upload "$UPLOAD_SINGLE_FILE" "$(basename "$UPLOAD_SINGLE_FILE")" "single:${i}" || true
+  done
+else
+  for sz in $UPLOAD_SIZES; do
+    f=$(mktemp)
+    write_generated_txt "$f" "$sz"
+    do_upload "$f" "bench_${sz}.txt" "${sz}" || true
+    rm -f "$f"
+  done
+fi
 echo ""
 
-chat_series() {
-  local label="$1"
-  local body_json="$2"
-  local k
-  for ((k = 1; k <= CHAT_REPEATS; k++)); do
-    local chat_meta chat_http t
-    chat_meta=$(curl -sS -X POST \
-      -H "Authorization: Bearer ${API_KEY}" \
-      -H "Content-Type: application/json" \
-      -d "$body_json" \
-      -o /tmp/testold_chat.json -w "%{http_code}|%{time_total}" \
-      "$BASE/api/v1/chat") || die "chat failed"
-    chat_http="${chat_meta%%|*}"
-    t="${chat_meta##*|}"
-    [[ "$chat_http" == "200" ]] || {
-      echo "chat HTTP $chat_http:" >&2
-      cat /tmp/testold_chat.json >&2
-      die "chat expected 200"
-    }
-    local ms
-    ms=$(sec_to_ms "$t")
-    if [[ "$k" -le "$CHAT_DISCARD_FIRST" ]]; then
-      echo "# chat burn-in $label #$k ${ms}ms (discarded)" >&2
-      continue
-    fi
-    echo -e "chat\t${label}\t${k}\t${ms}"
-  done
-}
+if [[ "$SKIP_CHAT" == "1" ]]; then
+  echo "# SKIP_CHAT=1 — done run_id=$run_id"
+  exit 0
+fi
 
-plain_json=$(jq -n --arg q "Reply with one word: ping." '{question:$q}')
-rag_json=$(jq -n --arg q "What information is in the uploaded documents?" --arg pid "$PROJECT_ID" \
-  '{question:$q, project_id:$pid}')
-
-echo "# --- chat (TSV: phase scenario repeat_index t_ms; burn-in discarded)"
-chat_series "plain" "$plain_json"
-chat_series "rag" "$rag_json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "$SCRIPT_DIR/bench_chat.inc.sh" ]] || die "missing bench_chat.inc.sh next to this script"
+# shellcheck source=bench_chat.inc.sh
+source "$SCRIPT_DIR/bench_chat.inc.sh"
+export CHAT_JSON_FILE=/tmp/testold_chat.json
+bench_chat_run
 
 echo ""
 echo "# done run_id=$run_id"
-echo "# Paste TSV lines into a spreadsheet; filter lines starting with #"

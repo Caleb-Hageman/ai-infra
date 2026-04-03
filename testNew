@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# Candidate (stage) benchmark: GET /warmup, then upload + chat timings.
-# Requires: curl, jq, dd. GNU date for ms timestamps in the summary line.
+# Async ingest (new API): Step A JSON init → Step B PUT to signed URL → Step C complete → 202.
+# See communication.txt. Same env / chat / failure behavior as testOld.sh except upload path.
 #
-# Usage:
-#   export API_BASE_URL="https://your-stage-host"   # no trailing slash
-#   export API_KEY="..."                            # Bearer token
-#   export PROJECT_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-#   ./testNew
+# Required: API_BASE_URL  API_KEY  PROJECT_ID
+# Optional: same as testOld (UPLOAD_SIZES, UPLOAD_SINGLE_FILE, UPLOAD_REPEAT, SKIP_CHAT, CHAT_*)
+#   USE_QUERY_PARAMS=1   append ?chunk_size=&chunk_overlap= to **complete** only (defaults le=512 for chunk_size)
+#   CHUNK_SIZE CHUNK_OVERLAP  used only when USE_QUERY_PARAMS=1 (defaults 256 / 50, match app/config)
+#   WARMUP_MAX_TRIES WARMUP_RETRY_SEC  GET /warmup retries if not 200 (see communication.txt)
 #
-# Optional:
-#   UPLOAD_SIZES        space-separated byte sizes (default: 10240 524288 2097152)
-#   CHAT_REPEATS        per scenario (default: 15)
-#   CHAT_DISCARD_FIRST  burn-in drops per scenario (default: 2)
-#   WARMUP_MAX_TRIES    retries for GET /warmup on 503 (default: 12)
-#   WARMUP_RETRY_SEC    sleep between retries (default: 10)
+# Upload/chat errors log to stderr; script continues (no exit on failed request).
+# Chat: bench_chat.inc.sh must sit next to this script (shared with testOld.sh; POST body matches ChatRequest).
 
 set -euo pipefail
 
@@ -21,6 +17,12 @@ API_BASE_URL="${API_BASE_URL:-}"
 API_KEY="${API_KEY:-}"
 PROJECT_ID="${PROJECT_ID:-}"
 UPLOAD_SIZES="${UPLOAD_SIZES:-10240 524288 2097152}"
+UPLOAD_SINGLE_FILE="${UPLOAD_SINGLE_FILE:-}"
+CHUNK_SIZE="${CHUNK_SIZE:-256}"
+CHUNK_OVERLAP="${CHUNK_OVERLAP:-50}"
+USE_QUERY_PARAMS="${USE_QUERY_PARAMS:-0}"
+UPLOAD_REPEAT="${UPLOAD_REPEAT:-1}"
+SKIP_CHAT="${SKIP_CHAT:-0}"
 CHAT_REPEATS="${CHAT_REPEATS:-15}"
 CHAT_DISCARD_FIRST="${CHAT_DISCARD_FIRST:-2}"
 WARMUP_MAX_TRIES="${WARMUP_MAX_TRIES:-12}"
@@ -31,15 +33,24 @@ die() { echo "error: $*" >&2; exit 1; }
 command -v curl >/dev/null || die "curl not found"
 command -v jq >/dev/null || die "jq not found"
 
-[[ -n "$API_BASE_URL" ]] || die "set API_BASE_URL (e.g. https://stage.example.com)"
+[[ -n "$API_BASE_URL" ]] || die "set API_BASE_URL (e.g. http://10.0.1.5)"
 [[ -n "$API_KEY" ]] || die "set API_KEY"
 [[ -n "$PROJECT_ID" ]] || die "set PROJECT_ID"
+
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  [[ -f "$UPLOAD_SINGLE_FILE" ]] || die "UPLOAD_SINGLE_FILE not found: $UPLOAD_SINGLE_FILE"
+fi
 
 BASE="${API_BASE_URL%/}"
 
 run_id="candidate-$(date -u +%Y%m%dT%H%M%SZ)"
 echo "# testNew run_id=$run_id"
-echo "# API_BASE_URL=$BASE PROJECT_ID=$PROJECT_ID"
+echo "# API_BASE_URL=$BASE PROJECT_ID=$PROJECT_ID USE_QUERY_PARAMS=$USE_QUERY_PARAMS"
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  echo "# upload mode: single file $UPLOAD_SINGLE_FILE x${UPLOAD_REPEAT} (async 3-step)"
+else
+  echo "# upload mode: generated text files UPLOAD_SIZES=$UPLOAD_SIZES (async 3-step)"
+fi
 echo ""
 
 warmup_ok=0
@@ -63,117 +74,119 @@ sec_to_ms() {
   awk -v s="$1" 'BEGIN { printf "%.0f", s * 1000 }'
 }
 
-do_upload_one() {
-  local size_bytes="$1"
-  local name="bench_${size_bytes}.txt"
-  local f
-  f=$(mktemp)
-  if command -v truncate >/dev/null 2>&1; then
-    : >"$f"
-    truncate -s "$size_bytes" "$f"
-  else
-    dd if=/dev/zero of="$f" bs=1 count=0 seek="$size_bytes" 2>/dev/null
-  fi
+write_generated_txt() {
+  local path="$1" size="$2"
+  local actual
+  [[ "$size" =~ ^[0-9]+$ ]] && (( size >= 1 )) || die "UPLOAD_SIZES must be positive integers"
+  yes | head -c "$size" >"$path" || true
+  actual=$(wc -c <"$path")
+  [[ "$actual" -eq "$size" ]] || die "generated file size mismatch: expected $size bytes, got $actual"
+}
 
-  local init_t init_http init_meta
-  init_meta=$(curl -sS -X POST \
+# Step A init → Step B PUT → Step C complete. TSV: init_ms, put_ms, complete_ms, total_ms (same columns as before).
+do_upload_async() {
+  local path="$1"
+  local name="$2"
+  local label="$3"
+  local init_url upload_url session_id init_meta init_http init_t put_t put_ms comp_meta comp_http comp_t
+  local init_ms complete_ms total_ms sum complete_url
+
+  init_url="${BASE}/ingest/${PROJECT_ID}/upload"
+  if ! init_meta=$(curl -sS -X POST \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg fn "$name" '{filename:$fn, content_type:"text/plain"}')" \
     -o /tmp/testnew_init.json -w "%{http_code}|%{time_total}" \
-    "$BASE/ingest/${PROJECT_ID}/upload") || die "init upload failed"
+    "$init_url"); then
+    echo "upload init curl error ($label)" >&2
+    echo -e "upload\t${label}\tFAIL\tcurl\t-\t-"
+    return 1
+  fi
   init_http="${init_meta%%|*}"
   init_t="${init_meta##*|}"
-  [[ "$init_http" == "200" ]] || {
-    echo "upload init HTTP $init_http:" >&2
-    cat /tmp/testnew_init.json >&2
-    die "init upload expected 200"
-  }
-  if ! jq -e .upload_url /tmp/testnew_init.json >/dev/null 2>&1; then
-    echo "upload init failed response:" >&2
-    cat /tmp/testnew_init.json >&2
-    die "missing upload_url"
-  fi
-  local upload_url session_id
-  upload_url=$(jq -r .upload_url /tmp/testnew_init.json)
-  session_id=$(jq -r .session_id /tmp/testnew_init.json)
-  local init_ms put_ms complete_ms total_ms
   init_ms=$(sec_to_ms "$init_t")
 
-  local put_t
-  put_t=$(curl -sS -f -X PUT -T "$f" \
+  if [[ "$init_http" != "200" && "$init_http" != "201" ]]; then
+    echo "upload init HTTP $init_http ($label):" >&2
+    cat /tmp/testnew_init.json >&2
+    echo -e "upload\t${label}\tFAIL\t${init_http}\t-\t-"
+    return 1
+  fi
+  if ! jq -e .upload_url /tmp/testnew_init.json >/dev/null 2>&1; then
+    echo "upload init missing upload_url ($label):" >&2
+    cat /tmp/testnew_init.json >&2
+    echo -e "upload\t${label}\tFAIL\t-\t-\t-"
+    return 1
+  fi
+  upload_url=$(jq -r .upload_url /tmp/testnew_init.json)
+  session_id=$(jq -r .session_id /tmp/testnew_init.json)
+
+  if ! put_t=$(curl -sS -f -X PUT --data-binary @"${path}" \
     -H "Content-Type: text/plain" \
     -o /dev/null -w "%{time_total}" \
-    "$upload_url") || die "GCS PUT failed"
+    "$upload_url"); then
+    echo "upload PUT failed ($label)" >&2
+    echo -e "upload\t${label}\t${init_ms}\tFAIL\t-\t-"
+    return 1
+  fi
   put_ms=$(sec_to_ms "$put_t")
 
-  local comp_meta comp_http comp_t
-  comp_meta=$(curl -sS -X POST \
+  complete_url="${BASE}/ingest/${PROJECT_ID}/upload/${session_id}/complete"
+  if [[ "$USE_QUERY_PARAMS" == "1" ]]; then
+    complete_url="${complete_url}?chunk_size=${CHUNK_SIZE}&chunk_overlap=${CHUNK_OVERLAP}"
+  fi
+
+  if ! comp_meta=$(curl -sS -X POST \
     -H "Authorization: Bearer ${API_KEY}" \
     -o /tmp/testnew_complete.json -w "%{http_code}|%{time_total}" \
-    "$BASE/ingest/${PROJECT_ID}/upload/${session_id}/complete") || die "complete failed"
+    "$complete_url"); then
+    echo "upload complete curl error ($label)" >&2
+    echo -e "upload\t${label}\t${init_ms}\t${put_ms}\tFAIL\t-"
+    return 1
+  fi
   comp_http="${comp_meta%%|*}"
   comp_t="${comp_meta##*|}"
-  [[ "$comp_http" == "202" ]] || {
-    echo "complete HTTP $comp_http:" >&2
-    cat /tmp/testnew_complete.json >&2
-    die "complete expected 202"
-  }
   complete_ms=$(sec_to_ms "$comp_t")
 
-  rm -f "$f"
+  if [[ "$comp_http" != "202" ]]; then
+    echo "upload complete HTTP $comp_http ($label):" >&2
+    cat /tmp/testnew_complete.json >&2
+    echo -e "upload\t${label}\t${init_ms}\t${put_ms}\tFAIL\t${comp_http}"
+    return 1
+  fi
 
-  local sum
   sum=$(awk -v a="$init_ms" -v b="$put_ms" -v c="$complete_ms" 'BEGIN { print a + b + c }')
   total_ms=$sum
-
-  echo -e "upload\t${size_bytes}\t${init_ms}\t${put_ms}\t${complete_ms}\t${total_ms}"
+  echo -e "upload\t${label}\t${init_ms}\t${put_ms}\t${complete_ms}\t${total_ms}"
+  return 0
 }
 
-echo "# --- uploads (TSV: phase size_bytes t_init_ms t_put_ms t_complete_ms t_total_ms)"
-for sz in $UPLOAD_SIZES; do
-  do_upload_one "$sz"
-done
+echo "# --- uploads (TSV: phase label t_init_ms t_put_ms t_complete_ms t_total_ms; FAIL as in testOld)"
+if [[ -n "$UPLOAD_SINGLE_FILE" ]]; then
+  for ((i = 1; i <= UPLOAD_REPEAT; i++)); do
+    do_upload_async "$UPLOAD_SINGLE_FILE" "$(basename "$UPLOAD_SINGLE_FILE")" "single:${i}" || true
+  done
+else
+  for sz in $UPLOAD_SIZES; do
+    f=$(mktemp)
+    write_generated_txt "$f" "$sz"
+    do_upload_async "$f" "bench_${sz}.txt" "${sz}" || true
+    rm -f "$f"
+  done
+fi
 echo ""
 
-chat_series() {
-  local label="$1"
-  local body_json="$2"
-  local k
-  for ((k = 1; k <= CHAT_REPEATS; k++)); do
-    local t
-    local chat_meta chat_http t
-    chat_meta=$(curl -sS -X POST \
-      -H "Authorization: Bearer ${API_KEY}" \
-      -H "Content-Type: application/json" \
-      -d "$body_json" \
-      -o /tmp/testnew_chat.json -w "%{http_code}|%{time_total}" \
-      "$BASE/api/v1/chat") || die "chat failed"
-    chat_http="${chat_meta%%|*}"
-    t="${chat_meta##*|}"
-    [[ "$chat_http" == "200" ]] || {
-      echo "chat HTTP $chat_http:" >&2
-      cat /tmp/testnew_chat.json >&2
-      die "chat expected 200"
-    }
-    local ms
-    ms=$(sec_to_ms "$t")
-    if [[ "$k" -le "$CHAT_DISCARD_FIRST" ]]; then
-      echo "# chat burn-in $label #$k ${ms}ms (discarded)" >&2
-      continue
-    fi
-    echo -e "chat\t${label}\t${k}\t${ms}"
-  done
-}
+if [[ "$SKIP_CHAT" == "1" ]]; then
+  echo "# SKIP_CHAT=1 — done run_id=$run_id"
+  exit 0
+fi
 
-plain_json=$(jq -n --arg q "Reply with one word: ping." '{question:$q}')
-rag_json=$(jq -n --arg q "What information is in the uploaded documents?" --arg pid "$PROJECT_ID" \
-  '{question:$q, project_id:$pid}')
-
-echo "# --- chat (TSV: phase scenario repeat_index t_ms; burn-in discarded)"
-chat_series "plain" "$plain_json"
-chat_series "rag" "$rag_json"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "$SCRIPT_DIR/bench_chat.inc.sh" ]] || die "missing bench_chat.inc.sh next to this script"
+# shellcheck source=bench_chat.inc.sh
+source "$SCRIPT_DIR/bench_chat.inc.sh"
+export CHAT_JSON_FILE=/tmp/testnew_chat.json
+bench_chat_run
 
 echo ""
 echo "# done run_id=$run_id"
-echo "# Paste TSV lines into a spreadsheet; filter lines starting with #"

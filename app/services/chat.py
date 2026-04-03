@@ -4,8 +4,6 @@
 import asyncio
 import logging
 import os
-import time
-from functools import lru_cache
 from uuid import UUID
 
 import httpx
@@ -19,10 +17,6 @@ logger = logging.getLogger(__name__)
 CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", str(DEFAULT_TOP_K)))
 VLLM_MAX_RETRIES = int(os.getenv("VLLM_MAX_RETRIES", "2"))
 
-# Cache vLLM ID token headers briefly to avoid redundant metadata server / token fetches on hot path.
-_ID_TOKEN_CACHE_TTL_S = float(os.getenv("ID_TOKEN_CACHE_TTL_S", "300"))
-_id_token_cache_mono: float = 0.0
-_id_token_cache_value: dict[str, str] | None = None
 
 def _get_id_token_headers() -> dict[str, str]:
     """Fetch GCP identity token for Cloud Run service-to-service auth. Returns empty dict if not applicable."""
@@ -41,29 +35,9 @@ def _get_id_token_headers() -> dict[str, str]:
         return {}
 
 
-def _cached_get_id_token_headers() -> dict[str, str]:
-    """Same as _get_id_token_headers, with a short process-local TTL."""
-    global _id_token_cache_mono, _id_token_cache_value
-    now = time.monotonic()
-    if (
-        _id_token_cache_value is not None
-        and now - _id_token_cache_mono < _ID_TOKEN_CACHE_TTL_S
-    ):
-        return _id_token_cache_value
-    h = _get_id_token_headers()
-    _id_token_cache_mono = now
-    _id_token_cache_value = h if h else None
-    return h if h else {}
-
-
-@lru_cache(maxsize=128)
-def _signed_url_for_citation(gcs_uri: str) -> str | None:
-    """Process-local cache for citation GET URLs (same chunk may repeat across turns)."""
-    return gcs.generate_signed_url(gcs_uri)
-
 async def warmup_vllm() -> None:
     """Minimal completion to wake cold vLLM; awaited from a background task during /warmup."""
-    id_headers = await asyncio.to_thread(_cached_get_id_token_headers)
+    id_headers = await asyncio.to_thread(_get_id_token_headers)
     base = VLLM_BASE_URL.rstrip("/")
     chat_payload = {
         "model": VLLM_MODEL,
@@ -105,6 +79,7 @@ async def warmup_vllm() -> None:
             else:
                 raise
 
+
 async def generate_response(
     session,
     team_id,
@@ -114,44 +89,40 @@ async def generate_response(
 ) -> tuple[str, list]:
     citations: list[dict] = []
     context_parts: list[str] = []
-    id_headers: dict[str, str] = {}
-    matches: list = []
 
     if project_id:
-        token_task = asyncio.create_task(asyncio.to_thread(_cached_get_id_token_headers))
-        search_task = asyncio.create_task(
-            query_service.execute_similarity_search(
-                session=session,
-                project_id=project_id,
-                query_text=question,
-                top_k=CHAT_TOP_K,
-            )
+        matches = await query_service.execute_similarity_search(
+            session=session,
+            project_id=project_id,
+            query_text=question,
+            top_k=CHAT_TOP_K,
         )
-        matches, id_headers = await asyncio.gather(search_task, token_task)
-    elif team_id:
-        token_task = asyncio.create_task(asyncio.to_thread(_cached_get_id_token_headers))
-        search_task = asyncio.create_task(
-            query_service.execute_similarity_search_for_team(
-                session=session,
-                team_id=team_id,
-                query_text=question,
-                top_k=CHAT_TOP_K,
-            )
-        )
-        matches, id_headers = await asyncio.gather(search_task, token_task)
-
-    if matches:
-        signed_urls = await asyncio.gather(
-            *[asyncio.to_thread(_signed_url_for_citation, m.gcs_uri) for m in matches]
-        )
-        for m, signed_url in zip(matches, signed_urls):
+        for m in matches:
             context_parts.append(m.content)
+            signed_url = gcs.generate_signed_url(m.gcs_uri)
             citations.append({
                 "source": m.source_file or "",
                 "content": m.content[:200] + ("..." if len(m.content) > 200 else ""),
                 "url": signed_url,
                 "score": m.score,
             })
+    elif team_id:
+        matches = await query_service.execute_similarity_search_for_team(
+            session=session,
+            team_id=team_id,
+            query_text=question,
+            top_k=CHAT_TOP_K,
+        )
+        for m in matches:
+            context_parts.append(m.content)
+            signed_url = gcs.generate_signed_url(m.gcs_uri)
+            citations.append({
+                "source": m.source_file or "",
+                "content": m.content[:200] + ("..." if len(m.content) > 200 else ""),
+                "url": signed_url,
+                "score": m.score,
+            })
+    # else: no project_id, no team_id → no RAG, plain chat
 
     context = "\n\n---\n\n".join(context_parts) if context_parts else ""
     if context:
@@ -167,8 +138,7 @@ async def generate_response(
         prompt = f"{system_prompt}\n\n{prompt}"
 
     try:
-        if not id_headers:
-            id_headers = await asyncio.to_thread(_cached_get_id_token_headers)
+        id_headers = await asyncio.to_thread(_get_id_token_headers)
         if id_headers:
             logger.info("Using identity token for vLLM auth")
         else:

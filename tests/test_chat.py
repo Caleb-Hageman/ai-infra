@@ -53,6 +53,31 @@ def test_valid_key_returns_200(mock_gen, app_client, fake_session, fake_api_key)
     assert data["citations"] == []
 
 
+@patch("app.routers.chat.rate_limiter.is_rate_limited", new_callable=AsyncMock)
+def test_redis_unavailable_returns_503(mock_rl, app_client, fake_session, fake_api_key):
+    import redis.exceptions
+
+    mock_rl.side_effect = redis.exceptions.ConnectionError(
+        "Error 111 connecting to localhost:6379. Connection refused."
+    )
+    key = fake_api_key()
+
+    async def fake_get_api_key():
+        return key
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(None),
+    }):
+        response = app_client.post(
+            "/api/v1/chat",
+            json={"question": "test"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Rate limiting backend unavailable"
+
+
 def test_project_id_wrong_team_returns_403(app_client, fake_session, fake_api_key):
     team_a = uuid4()
     team_b = uuid4()
