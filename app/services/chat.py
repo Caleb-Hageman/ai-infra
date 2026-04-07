@@ -15,7 +15,9 @@ from app.services import gcs
 logger = logging.getLogger(__name__)
 
 CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", str(DEFAULT_TOP_K)))
+CHAT_MIN_SCORE_DEFAULT = float(os.getenv("CHAT_MIN_SCORE_DEFAULT", "0.4"))
 VLLM_MAX_RETRIES = int(os.getenv("VLLM_MAX_RETRIES", "2"))
+ABSTAIN_ANSWER = "I don't have enough relevant context in your indexed documents to answer confidently."
 
 
 def _get_id_token_headers() -> dict[str, str]:
@@ -86,18 +88,30 @@ async def generate_response(
     project_id: UUID | None,
     question: str,
     system_prompt: str | None,
+    min_score: float | None = None,
 ) -> tuple[str, list]:
     citations: list[dict] = []
     context_parts: list[str] = []
+    effective_min_score = min_score if min_score is not None else CHAT_MIN_SCORE_DEFAULT
+    retrieval_attempted = False
 
     if project_id:
+        retrieval_attempted = True
         matches = await query_service.execute_similarity_search(
             session=session,
             project_id=project_id,
             query_text=question,
             top_k=CHAT_TOP_K,
         )
-        for m in matches:
+        relevant_matches = [m for m in matches if m.score >= effective_min_score]
+        logger.info(
+            "chat_retrieval_filter scope=project top_k=%s min_score=%.4f raw_matches=%s kept_matches=%s",
+            CHAT_TOP_K,
+            effective_min_score,
+            len(matches),
+            len(relevant_matches),
+        )
+        for m in relevant_matches:
             context_parts.append(m.content)
             signed_url = gcs.generate_signed_url(m.gcs_uri)
             citations.append({
@@ -107,13 +121,22 @@ async def generate_response(
                 "score": m.score,
             })
     elif team_id:
+        retrieval_attempted = True
         matches = await query_service.execute_similarity_search_for_team(
             session=session,
             team_id=team_id,
             query_text=question,
             top_k=CHAT_TOP_K,
         )
-        for m in matches:
+        relevant_matches = [m for m in matches if m.score >= effective_min_score]
+        logger.info(
+            "chat_retrieval_filter scope=team top_k=%s min_score=%.4f raw_matches=%s kept_matches=%s",
+            CHAT_TOP_K,
+            effective_min_score,
+            len(matches),
+            len(relevant_matches),
+        )
+        for m in relevant_matches:
             context_parts.append(m.content)
             signed_url = gcs.generate_signed_url(m.gcs_uri)
             citations.append({
@@ -123,6 +146,9 @@ async def generate_response(
                 "score": m.score,
             })
     # else: no project_id, no team_id → no RAG, plain chat
+
+    if retrieval_attempted and not context_parts:
+        return (ABSTAIN_ANSWER, [])
 
     context = "\n\n---\n\n".join(context_parts) if context_parts else ""
     if context:
