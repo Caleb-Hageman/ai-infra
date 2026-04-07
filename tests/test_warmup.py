@@ -4,7 +4,7 @@ import asyncio
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.warmup import warmup_all_ok, warmup_dependencies
+from app.warmup import _vllm_warmup_background, warmup_all_ok, warmup_dependencies
 
 
 def test_warmup_all_ok_requires_database_embeddings_and_vllm():
@@ -73,3 +73,50 @@ def test_get_warmup_200_when_ok(app_client):
     data = response.json()
     assert data["status"] == "warmed"
     assert "components" in data
+
+
+@patch("app.warmup.rag_service.ensure_dimension", new_callable=AsyncMock)
+@patch("app.warmup.engine")
+async def test_warmup_dependencies_database_failure_records_error(mock_engine, mock_ensure):
+    mock_engine.connect.side_effect = OSError("db down")
+    status = await warmup_dependencies()
+    assert status["database"]["ok"] is False
+    assert "db down" in status["database"]["error"]
+
+
+@patch("app.warmup.rag_service.ensure_dimension", new_callable=AsyncMock)
+@patch("app.warmup.engine")
+async def test_warmup_dependencies_embedding_failure_records_error(mock_engine, mock_ensure):
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock()
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_engine.connect = MagicMock(return_value=mock_cm)
+    mock_ensure.side_effect = ValueError("model missing")
+
+    status = await warmup_dependencies()
+    assert status["database"]["ok"] is True
+    assert status["embeddings"]["ok"] is False
+    assert "model missing" in status["embeddings"]["error"]
+
+
+@patch("app.warmup.asyncio.create_task", side_effect=RuntimeError("cannot schedule"))
+@patch("app.warmup.rag_service.ensure_dimension", new_callable=AsyncMock)
+@patch("app.warmup.engine")
+async def test_warmup_dependencies_vllm_schedule_failure_records_error(mock_engine, mock_ensure, _mock_task):
+    mock_conn = AsyncMock()
+    mock_conn.execute = AsyncMock()
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_engine.connect = MagicMock(return_value=mock_cm)
+
+    status = await warmup_dependencies()
+    assert status["vllm"]["ok"] is False
+    assert "cannot schedule" in status["vllm"]["error"]
+
+
+@patch("app.warmup.warmup_vllm", new_callable=AsyncMock, side_effect=RuntimeError("vllm"))
+async def test_vllm_background_task_swallows_warmup_failure(_mock_vllm):
+    await _vllm_warmup_background()
