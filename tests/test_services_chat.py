@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import httpx
 
-from app.services.chat import generate_response
+from app.services.chat import ABSTAIN_ANSWER, generate_response
 
 
 @patch("app.services.chat.asyncio.sleep", new_callable=AsyncMock)
@@ -83,6 +83,7 @@ async def test_generate_response_retries_on_read_timeout(mock_client_cls, mock_s
     assert call_count == 3
 
 
+@patch("app.services.chat.gcs.generate_signed_url", return_value="https://signed.example/url")
 @patch("app.services.chat.asyncio.sleep", new_callable=AsyncMock)
 @patch("app.services.chat.httpx.AsyncClient")
 @patch("app.services.chat.gcs.generate_signed_url", return_value="https://example/signed")
@@ -128,6 +129,85 @@ async def test_generate_response_with_rag_context_and_system_prompt(
     assert "Be concise." in call_json["messages"][0]["content"]
     assert "Context:" in call_json["messages"][0]["content"]
     mock_search.assert_called_once()
+
+
+@patch("app.services.chat.query_service.execute_similarity_search", new_callable=AsyncMock)
+async def test_generate_response_abstains_when_scores_below_threshold(mock_search):
+    mock_search.return_value = [
+        type(
+            "M",
+            (),
+            {
+                "content": "weak ctx",
+                "source_file": "f.pdf",
+                "score": 0.2,
+                "gcs_uri": "gs://bucket/f.pdf",
+            },
+        )(),
+    ]
+    session = MagicMock()
+    answer, citations = await generate_response(
+        session=session,
+        team_id=None,
+        project_id=uuid4(),
+        question="q",
+        system_prompt=None,
+        min_score=None,
+    )
+    assert answer == ABSTAIN_ANSWER
+    assert citations == []
+    mock_search.assert_called_once()
+
+
+@patch("app.services.chat.gcs.generate_signed_url", return_value="https://signed.example/url")
+@patch("app.services.chat.query_service.execute_similarity_search", new_callable=AsyncMock)
+async def test_generate_response_min_score_override_filters_chunks(mock_search, _mock_signed_url):
+    mock_search.return_value = [
+        type(
+            "M",
+            (),
+            {
+                "content": "a",
+                "source_file": "a.pdf",
+                "score": 0.5,
+                "gcs_uri": "gs://bucket/a.pdf",
+            },
+        )(),
+        type(
+            "M",
+            (),
+            {
+                "content": "b",
+                "source_file": "b.pdf",
+                "score": 0.85,
+                "gcs_uri": "gs://bucket/b.pdf",
+            },
+        )(),
+    ]
+    session = MagicMock()
+    with patch("app.services.chat.httpx.AsyncClient") as mock_client_cls:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
+
+        answer, citations = await generate_response(
+            session=session,
+            team_id=None,
+            project_id=uuid4(),
+            question="q",
+            system_prompt=None,
+            min_score=0.7,
+        )
+    assert answer == "ok"
+    assert len(citations) == 1
+    assert citations[0]["content"].startswith("b")
+    assert citations[0]["score"] == 0.85
 
 
 @patch("app.services.chat.asyncio.sleep", new_callable=AsyncMock)

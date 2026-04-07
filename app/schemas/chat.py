@@ -1,5 +1,5 @@
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class Citation(BaseModel):
     source: str
@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     question: str
     project_id: UUID | None = None
     system_prompt: str | None = None
+    min_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 class ChatResponse(BaseModel):
     status: str

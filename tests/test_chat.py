@@ -27,6 +27,24 @@ def test_invalid_api_key_returns_401(app_client):
     assert response.status_code == 401
 
 
+def test_min_score_out_of_range_returns_422(app_client, fake_session, fake_api_key):
+    key = fake_api_key()
+
+    async def fake_get_api_key():
+        return key
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(None),
+    }):
+        response = app_client.post(
+            "/api/v1/chat",
+            json={"question": "test", "min_score": 1.5},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 422
+
+
 @patch("app.routers.chat.chat_service.generate_response", new_callable=AsyncMock)
 def test_valid_key_returns_200(mock_gen, app_client, fake_session, fake_api_key):
     mock_gen.return_value = ("mocked answer", [])
