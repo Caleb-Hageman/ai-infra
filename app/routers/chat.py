@@ -41,7 +41,12 @@ async def chat(
             raise HTTPException(403)
     try:
         answer, citations = await chat_service.generate_response(
-            session, current_key.team_id, body.project_id, body.question, body.system_prompt
+            session,
+            current_key.team_id,
+            body.project_id,
+            body.question,
+            body.system_prompt,
+            body.min_score,
         )
     except RuntimeError:
         raise HTTPException(500)
