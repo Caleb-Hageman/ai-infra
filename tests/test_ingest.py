@@ -1,10 +1,11 @@
-# Purpose: Ingest router — init signed PUT, complete, repair-embeddings.
+# Purpose: Ingest router — signed PUT (/upload/init + complete), legacy multipart /upload.
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.auth import get_api_key
+from app.config import EMBEDDING_DIM
 from app.db import get_session
 from app.models import Document, DocumentSourceType, DocumentStatus
 
@@ -13,7 +14,7 @@ from conftest import override_deps
 
 def test_init_upload_401(app_client):
     response = app_client.post(
-        f"/ingest/{uuid4()}/upload",
+        f"/ingest/{uuid4()}/upload/init",
         json={"filename": "a.txt"},
     )
     assert response.status_code == 401
@@ -33,7 +34,7 @@ def test_init_upload_415_bad_extension(app_client, fake_session, fake_api_key):
         get_session: fake_get_session,
     }):
         response = app_client.post(
-            f"/ingest/{uuid4()}/upload",
+            f"/ingest/{uuid4()}/upload/init",
             json={"filename": "bad.exe"},
             headers={"Authorization": "Bearer sk-test"},
         )
@@ -70,7 +71,7 @@ def test_init_upload_200(mock_sign, app_client, fake_api_key):
         get_session: fake_get_session,
     }):
         response = app_client.post(
-            f"/ingest/{project_id}/upload",
+            f"/ingest/{project_id}/upload/init",
             json={"filename": "doc.txt", "content_type": "text/plain"},
             headers={"Authorization": "Bearer sk-test"},
         )
@@ -147,3 +148,69 @@ def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
         256,
         50,
     )
+
+
+@patch("app.routers.ingest.insert_document_chunks", new_callable=AsyncMock)
+@patch("app.routers.ingest.rag_service.embed_documents", new_callable=AsyncMock)
+@patch("app.routers.ingest.rag_service.chunk_text", return_value=[{"chunk_index": 0, "content": "x"}])
+@patch("app.routers.ingest.rag_service.extract_text", return_value="full")
+@patch("app.routers.ingest.rag_service.ensure_dimension", new_callable=AsyncMock)
+@patch("app.routers.ingest.gcs.upload_file_stream", return_value="gcs/path")
+def test_legacy_multipart_upload_201(
+    mock_gcs_stream,
+    _ensure_dim,
+    _extract_text,
+    _chunk_text,
+    mock_embed,
+    mock_insert_chunks,
+    app_client,
+    fake_api_key,
+):
+    mock_embed.return_value = [[0.1] * EMBEDDING_DIM]
+
+    key = fake_api_key()
+    project_id = uuid4()
+
+    async def fake_get_api_key():
+        return key
+
+    mock_proj = MagicMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_proj
+    mock_session = MagicMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock(return_value=None)
+    mock_session.refresh = AsyncMock()
+
+    doc = Document(
+        id=uuid4(),
+        team_id=key.team_id,
+        project_id=project_id,
+        title="a.txt",
+        source_type=DocumentSourceType.upload,
+        gcs_uri="gcs/path",
+        mime_type="text/plain",
+        status=DocumentStatus.uploaded,
+    )
+
+    async def fake_get_session():
+        yield mock_session
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_get_session,
+    }), patch(
+        "app.routers.ingest.create_uploaded_document",
+        new_callable=AsyncMock,
+        return_value=doc,
+    ):
+        response = app_client.post(
+            f"/ingest/{project_id}/upload",
+            files={"file": ("a.txt", b"hello", "text/plain")},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 201
+    assert response.json()["status"] == "ready"
+    mock_gcs_stream.assert_called_once()
+    mock_insert_chunks.assert_called_once()

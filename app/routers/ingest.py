@@ -1,12 +1,14 @@
-# Purpose: Ingest routes — signed PUT to GCS, then complete triggers async chunk/embed/index.
+# Purpose: Ingest routes — legacy sync multipart upload; signed PUT + complete (async pipeline).
 
 import logging
 import mimetypes
+import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,14 +16,16 @@ from app.auth import get_api_key
 from app.config import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
+    EMBEDDING_DIM,
     SIGNED_PUT_EXPIRATION_MINUTES,
 )
 from app.db import async_session, get_session
-from app.models import ApiKey, Document, DocumentChunk, DocumentStatus, Project, UploadSession
+from app.models import ApiKey, Document, DocumentChunk, DocumentStatus, IngestionJob, Project, UploadSession
 from app.schemas.document import DocumentOut, InitUploadRequest, InitUploadResponse
 from app.services import gcs
 from app.services.document import create_uploaded_document
 from app.services.ingest_pipeline import process_uploaded_document
+from app.services.insert import insert_document_chunks
 from app.services.rag import rag_service
 
 logger = logging.getLogger(__name__)
@@ -64,7 +68,7 @@ def _resolved_content_type(filename: str, explicit: str | None) -> str:
     return guessed or "application/octet-stream"
 
 
-@router.post("/{project_id}/upload", response_model=InitUploadResponse)
+@router.post("/{project_id}/upload/init", response_model=InitUploadResponse)
 async def init_upload(
     project_id: UUID,
     body: InitUploadRequest,
@@ -189,6 +193,86 @@ async def complete_upload(
 
     response.headers["X-Document-Id"] = str(doc.id)
     response.headers["X-Upload-Session-Id"] = str(session_id)
+    return doc
+
+
+@router.post("/{project_id}/upload", response_model=DocumentOut, status_code=201)
+async def upload_file_legacy(
+    project_id: UUID,
+    file: UploadFile,
+    chunk_size: int = Query(DEFAULT_CHUNK_SIZE, ge=100, le=512),
+    chunk_overlap: int = Query(DEFAULT_CHUNK_OVERLAP, ge=0, le=1000),
+    current_key: ApiKey = Depends(get_api_key),
+    session: AsyncSession = Depends(get_session),
+):
+    """Multipart upload with inline chunking and embedding. Prefer /upload/init for large files."""
+    team_id = current_key.team_id
+    allowed = {".pdf", ".txt", ".md", ".markdown"}
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type '{suffix}'. Allowed: {sorted(allowed)}",
+        )
+
+    stmt = select(Project).where(
+        Project.id == project_id,
+        Project.team_id == team_id,
+    )
+    result = await session.execute(stmt)
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        destination = f"{team_id}/{project_id}/{file.filename}"
+        gcs_path = gcs.upload_file_stream(file.file, destination)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GCS upload failed: {e}") from e
+
+    doc = await create_uploaded_document(
+        session=session,
+        team_id=team_id,
+        project_id=project_id,
+        filename=file.filename or "upload",
+        gcs_path=gcs_path,
+        mime_type=file.content_type,
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        file.file.seek(0)
+        tmp.write(file.file.read())
+        tmp_path = tmp.name
+
+    try:
+        text = rag_service.extract_text(tmp_path)
+        chunks = rag_service.chunk_text(
+            text, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
+        await rag_service.ensure_dimension(EMBEDDING_DIM)
+        vectors = await rag_service.embed_documents([chunk["content"] for chunk in chunks])
+
+        chunk_payload = []
+        for chunk, vector in zip(chunks, vectors):
+            item = dict(chunk)
+            item["embedding"] = vector
+            chunk_payload.append(item)
+
+        await insert_document_chunks(
+            session, document_id=doc.id, chunks=chunk_payload, commit=False
+        )
+        session.add(IngestionJob(document_id=doc.id, chunks_created=len(chunk_payload)))
+        doc.status = DocumentStatus.ready
+        await session.commit()
+        await session.refresh(doc)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        doc.status = DocumentStatus.failed
+        await session.commit()
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}") from e
+    finally:
+        os.unlink(tmp_path)
+
     return doc
 
 

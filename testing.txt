@@ -31,7 +31,7 @@ What to measure (uploads)
 For each file i = 1..N:
 
   - size_bytes (or label: e.g. 10 KiB, 500 KiB, 2 MiB).
-  - t_init_ms: POST .../ingest/{project_id}/upload until response (signed URL).
+  - t_init_ms: POST .../ingest/{project_id}/upload/init until response (signed URL).
   - t_put_ms: HTTP PUT of file body to the signed URL (client-side; includes
     GCS latency).
   - t_complete_ms: POST .../complete (or whatever completes the session) until
