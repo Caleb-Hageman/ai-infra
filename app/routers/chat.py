@@ -1,3 +1,6 @@
+import logging
+
+import redis.exceptions as redis_exc
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +12,8 @@ from app.services import chat as chat_service
 from app.services.redis_service import rate_limiter
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
+logger = logging.getLogger(__name__)
+
 
 @router.post("/chat")
 async def chat(
@@ -22,10 +27,17 @@ async def chat(
         (500, 86400) # 500 requests per day
     ]
 
-    is_limited = await rate_limiter.is_rate_limited(
-        team_id=str(current_key.team_id), 
-        limits=team_limits
-    )
+    try:
+        is_limited = await rate_limiter.is_rate_limited(
+            team_id=str(current_key.team_id),
+            limits=team_limits,
+        )
+    except redis_exc.RedisError as e:
+        logger.exception("Redis unavailable for rate limiting")
+        raise HTTPException(
+            status_code=503,
+            detail="Rate limiting backend unavailable",
+        ) from e
 
     if is_limited:
         raise HTTPException(

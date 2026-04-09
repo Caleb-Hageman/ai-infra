@@ -63,6 +63,7 @@ class Team(Base):
     projects = relationship("Project", back_populates="team", cascade="all, delete-orphan")
     api_keys = relationship("ApiKey", back_populates="team", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="team", cascade="all, delete-orphan")
+    upload_sessions = relationship("UploadSession", back_populates="team", cascade="all, delete-orphan")
 
 
 class Project(Base):
@@ -75,6 +76,7 @@ class Project(Base):
 
     team = relationship("Team", back_populates="projects")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
+    upload_sessions = relationship("UploadSession", back_populates="project", cascade="all, delete-orphan")
 
 
 class ApiKey(Base):
@@ -119,6 +121,26 @@ class Document(Base):
     project = relationship("Project", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     ingestion_jobs = relationship("IngestionJob", back_populates="document", cascade="all, delete-orphan")
+    upload_sessions = relationship("UploadSession", back_populates="document")
+
+
+class UploadSession(Base):
+    __tablename__ = "upload_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    gcs_path = Column(Text, nullable=False)
+    filename = Column(Text, nullable=False)
+    mime_type = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+
+    team = relationship("Team", back_populates="upload_sessions")
+    project = relationship("Project", back_populates="upload_sessions")
+    document = relationship("Document", back_populates="upload_sessions")
 
 
 class IngestionJob(Base):
