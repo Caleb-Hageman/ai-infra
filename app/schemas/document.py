@@ -1,5 +1,18 @@
 from uuid import UUID
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
+
+
+class InitUploadRequest(BaseModel):
+    filename: str = Field(..., min_length=1)
+    content_type: str | None = None
+
+
+class InitUploadResponse(BaseModel):
+    upload_url: str
+    session_id: UUID
+    expires_in_seconds: int
+    gcs_path: str
 
 
 class DocumentOut(BaseModel):

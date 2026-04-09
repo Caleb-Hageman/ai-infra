@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -102,4 +102,16 @@ def mock_vllm_client(captured_prompt=None):
 @pytest.fixture
 def app_client():
     """TestClient for the FastAPI app. Use override_deps() to inject mocks."""
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture(autouse=True)
+def mock_chat_rate_limiter():
+    """Chat router rate limiting uses Redis; tests run without a local Redis."""
+    with patch(
+        "app.routers.chat.rate_limiter.is_rate_limited",
+        new_callable=AsyncMock,
+    ) as m:
+        m.return_value = False
+        yield m

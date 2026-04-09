@@ -1,3 +1,5 @@
+# Purpose: Central config — embeddings, vLLM, GCS upload limits.
+
 import os
 
 EMBEDDING_MODEL: str = "mixedbread-ai/mxbai-embed-large-v1"
@@ -12,3 +14,7 @@ DEFAULT_CHUNK_SIZE: int = 256
 DEFAULT_CHUNK_OVERLAP: int = 50
 
 DEFAULT_TOP_K: int = 5
+
+# Direct-to-GCS upload: max object size (single signed PUT, v1 no resumable).
+MAX_UPLOAD_BYTES: int = 16 * 1024 * 1024
+SIGNED_PUT_EXPIRATION_MINUTES: int = 15

@@ -14,10 +14,7 @@ from app.services import gcs
 
 logger = logging.getLogger(__name__)
 
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8001")
-VLLM_MODEL = os.getenv("VLLM_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
-VLLM_TIMEOUT = float(os.getenv("VLLM_TIMEOUT", "300"))
-CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", "5"))
+CHAT_TOP_K = int(os.getenv("CHAT_TOP_K", str(DEFAULT_TOP_K)))
 CHAT_MIN_SCORE_DEFAULT = float(os.getenv("CHAT_MIN_SCORE_DEFAULT", "0.4"))
 VLLM_MAX_RETRIES = int(os.getenv("VLLM_MAX_RETRIES", "2"))
 ABSTAIN_ANSWER = "I don't have enough relevant context in your indexed documents to answer confidently."
@@ -38,6 +35,51 @@ def _get_id_token_headers() -> dict[str, str]:
     except Exception as e:
         logger.warning("Could not fetch identity token for vLLM: %s", e)
         return {}
+
+
+async def warmup_vllm() -> None:
+    """Minimal completion to wake cold vLLM; awaited from a background task during /warmup."""
+    id_headers = await asyncio.to_thread(_get_id_token_headers)
+    base = VLLM_BASE_URL.rstrip("/")
+    chat_payload = {
+        "model": VLLM_MODEL,
+        "messages": [{"role": "user", "content": "."}],
+        "max_tokens": 1,
+    }
+    for attempt in range(VLLM_MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{base}/v1/chat/completions",
+                    json=chat_payload,
+                    headers=id_headers,
+                    timeout=VLLM_TIMEOUT,
+                )
+                if resp.status_code == 404:
+                    resp = await client.post(
+                        f"{base}/v1/completions",
+                        json={
+                            "model": VLLM_MODEL,
+                            "prompt": ".",
+                            "max_tokens": 1,
+                        },
+                        headers=id_headers,
+                        timeout=VLLM_TIMEOUT,
+                    )
+                resp.raise_for_status()
+                return
+        except httpx.ReadTimeout:
+            if attempt < VLLM_MAX_RETRIES:
+                wait = 10 * (attempt + 1)
+                logger.warning(
+                    "vLLM warmup ReadTimeout (attempt %s/%s), retrying in %ss",
+                    attempt + 1,
+                    VLLM_MAX_RETRIES + 1,
+                    wait,
+                )
+                await asyncio.sleep(wait)
+            else:
+                raise
 
 
 async def generate_response(

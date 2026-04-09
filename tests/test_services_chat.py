@@ -83,7 +83,6 @@ async def test_generate_response_retries_on_read_timeout(mock_client_cls, mock_s
     assert call_count == 3
 
 
-@patch("app.services.chat.gcs.generate_signed_url", return_value="https://signed.example/url")
 @patch("app.services.chat.asyncio.sleep", new_callable=AsyncMock)
 @patch("app.services.chat.httpx.AsyncClient")
 @patch("app.services.chat.gcs.generate_signed_url", return_value="https://example/signed")

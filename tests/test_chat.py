@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, patch
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -45,6 +46,46 @@ def test_min_score_out_of_range_returns_422(app_client, fake_session, fake_api_k
     assert response.status_code == 422
 
 
+@patch("app.routers.chat.rate_limiter.is_rate_limited", new_callable=AsyncMock)
+def test_rate_limit_returns_429(mock_rl, app_client, fake_session, fake_api_key):
+    mock_rl.return_value = True
+    key = fake_api_key()
+
+    async def fake_get_api_key():
+        return key
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(None),
+    }):
+        response = app_client.post(
+            "/api/v1/chat",
+            json={"question": "test"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 429
+
+
+@patch("app.routers.chat.chat_service.generate_response", new_callable=AsyncMock)
+def test_vllm_runtime_error_returns_500(mock_gen, app_client, fake_session, fake_api_key):
+    mock_gen.side_effect = RuntimeError("vllm down")
+    key = fake_api_key()
+
+    async def fake_get_api_key():
+        return key
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(None),
+    }):
+        response = app_client.post(
+            "/api/v1/chat",
+            json={"question": "test"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 500
+
+
 @patch("app.routers.chat.chat_service.generate_response", new_callable=AsyncMock)
 def test_valid_key_returns_200(mock_gen, app_client, fake_session, fake_api_key):
     mock_gen.return_value = ("mocked answer", [])
@@ -68,6 +109,31 @@ def test_valid_key_returns_200(mock_gen, app_client, fake_session, fake_api_key)
     assert data["status"] == "success"
     assert data["answer"] == "mocked answer"
     assert data["citations"] == []
+
+
+@patch("app.routers.chat.rate_limiter.is_rate_limited", new_callable=AsyncMock)
+def test_redis_unavailable_returns_503(mock_rl, app_client, fake_session, fake_api_key):
+    import redis.exceptions
+
+    mock_rl.side_effect = redis.exceptions.ConnectionError(
+        "Error 111 connecting to localhost:6379. Connection refused."
+    )
+    key = fake_api_key()
+
+    async def fake_get_api_key():
+        return key
+
+    with override_deps({
+        get_api_key: fake_get_api_key,
+        get_session: fake_session(None),
+    }):
+        response = app_client.post(
+            "/api/v1/chat",
+            json={"question": "test"},
+            headers={"Authorization": "Bearer sk-test"},
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Rate limiting backend unavailable"
 
 
 def test_project_id_wrong_team_returns_403(app_client, fake_session, fake_api_key):
@@ -210,3 +276,28 @@ def test_no_rag_path_plain_prompt_when_neither_project_nor_team(
     mock_team_search.assert_not_called()
     assert len(captured) == 1
     assert captured[0] == "plain question"
+
+
+@pytest.mark.asyncio
+@patch("app.services.chat._get_id_token_headers", return_value={})
+@patch("app.services.chat.httpx.AsyncClient")
+async def test_warmup_vllm_posts_minimal_chat_completion(mock_client_cls, _mock_headers):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status = MagicMock()
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client_cls.return_value = mock_client
+
+    from app.services.chat import warmup_vllm
+
+    await warmup_vllm()
+
+    mock_client.post.assert_called_once()
+    url = mock_client.post.call_args[0][0]
+    payload = mock_client.post.call_args[1]["json"]
+    assert "/v1/chat/completions" in url
+    assert payload["max_tokens"] == 1
+    assert payload["messages"][0]["content"] == "."
