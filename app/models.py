@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
+from .config import EMBEDDING_DIM
 from .db import Base
 
 
@@ -147,7 +148,7 @@ class DocumentChunk(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
     chunk_index = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(1536))
+    embedding = Column(Vector(EMBEDDING_DIM))
     page_start = Column(Integer, nullable=True)
     page_end = Column(Integer, nullable=True)
     char_start = Column(Integer, nullable=True)

@@ -1,7 +1,8 @@
 import json
 
-# Create your embedding: first 3 numbers are custom, rest are zeros
-embedding = [0.001, 0.002, 0.003] + [0.0] * (1536 - 3)
+from app.config import EMBEDDING_DIM
+
+embedding = [0.001, 0.002, 0.003] + [0.0] * (EMBEDDING_DIM - 3)
 
 data = {
     "title": "Quick Demo Document",

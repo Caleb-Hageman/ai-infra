@@ -17,6 +17,20 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+  
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
     build:
@@ -36,6 +50,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_PORT=5432
       - POSTGRES_HOST=db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
       - ADMIN_TEAM_ID=${ADMIN_TEAM_ID}
     depends_on:
       db:
