@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,20 @@ class InitUploadResponse(BaseModel):
     gcs_path: str
 
 
+class IngestionJobOut(BaseModel):
+    id: UUID
+    status: str
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    chunks_created: int | None
+    total_chunks: int | None
+    embedding_model: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class DocumentOut(BaseModel):
     id: UUID
     team_id: UUID
@@ -23,6 +38,11 @@ class DocumentOut(BaseModel):
     source_type: str
     gcs_uri: str | None
     status: str
+    ingestion_progress_percent: int = 0
+    chunk_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+    latest_ingestion_job: IngestionJobOut | None = None
 
     model_config = {"from_attributes": True}
 

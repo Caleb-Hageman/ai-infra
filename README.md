@@ -157,6 +157,17 @@ uv run alembic upgrade head
 This applies any new migration files they added. Same as running a SQL script,
 but automatic.
 
+### "How do document progress updates work?"
+- `documents.status` remains the coarse lifecycle state: `uploaded` | `processing` | `ready` | `failed`
+- `GET /query/{project_id}/documents` and `GET /query/documents/{document_id}` return:
+  - `status`
+  - `chunk_count`
+  - `ingestion_progress_percent`
+  - `latest_ingestion_job`
+- `ingestion_progress_percent` is based on chunk progress stored in `ingestion_jobs`:
+  - `chunks_created / total_chunks`
+- Async ingestion updates `ingestion_jobs.chunks_created` as chunk batches finish, so polling the document endpoints shows real progress without changing the meaning of `documents.status`
+
 ### "I need to add a column or table"
 1. Edit `app/models.py` — add your column/table as a Python class
 2. Run: `uv run alembic revision --autogenerate -m "describe what you changed"`
@@ -239,6 +250,7 @@ One job per upload (or per reprocess).
 | `started_at`      | timestamp | Nullable                                            |
 | `finished_at`     | timestamp | Nullable                                            |
 | `chunks_created`  | int       |                                                      |
+| `total_chunks`    | int       | Total chunks expected for this ingestion job         |
 | `embedding_model` | text      | Track which model was used                           |
 | `created_at`      | timestamp |                                                      |
 

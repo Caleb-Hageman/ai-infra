@@ -1,15 +1,18 @@
 # Purpose: Query router tests (similarity_search, list_documents, get_document, list_chunks, delete_document, stats).
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from app.auth import get_api_key
 from app.db import get_session
+from app.schemas.document import DocumentOut
 
 from conftest import override_deps
 
 
 def _fake_doc(**kwargs):
+    now = datetime.now(timezone.utc)
     defaults = {
         "id": uuid4(),
         "team_id": uuid4(),
@@ -18,9 +21,14 @@ def _fake_doc(**kwargs):
         "source_type": "upload",
         "gcs_uri": None,
         "status": "uploaded",
+        "ingestion_progress_percent": 0,
+        "chunk_count": 0,
+        "created_at": now,
+        "updated_at": now,
+        "latest_ingestion_job": None,
     }
     defaults.update(kwargs)
-    return type("Document", (), defaults)()
+    return DocumentOut(**defaults)
 
 
 def _fake_chunk(**kwargs):

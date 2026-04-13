@@ -265,6 +265,7 @@ def test_complete_upload_expires_at_naive_normalized(mock_verify, mock_bg, app_c
     key = fake_api_key()
     project_id = uuid4()
     session_id = uuid4()
+    now = datetime.now(timezone.utc)
 
     async def fake_get_api_key():
         return key
@@ -276,10 +277,19 @@ def test_complete_upload_expires_at_naive_normalized(mock_verify, mock_bg, app_c
     mock_us.gcs_path = "p"
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_us
+
+    async def _refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+        if hasattr(obj, "created_at") and getattr(obj, "created_at", None) is None:
+            obj.created_at = now
+        if hasattr(obj, "updated_at") and getattr(obj, "updated_at", None) is None:
+            obj.updated_at = now
+
     mock_session = MagicMock()
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.commit = AsyncMock(return_value=None)
-    mock_session.refresh = AsyncMock()
+    mock_session.refresh = AsyncMock(side_effect=_refresh)
 
     doc = Document(
         id=uuid4(),
