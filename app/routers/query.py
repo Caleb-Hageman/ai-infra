@@ -70,7 +70,7 @@ async def get_document(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    doc = await query.get_document_by_id(session, document_id)
+    doc = await query.get_document_by_id(session, current_key.team_id, document_id)
     if not doc:
         raise HTTPException(404, "Document not found")
     return doc
@@ -81,7 +81,7 @@ async def list_chunks(
     current_key: ApiKey = Depends(get_api_key),
     session: AsyncSession = Depends(get_session),
 ):
-    return await query.get_document_chunks(session, document_id)
+    return await query.get_document_chunks(session, current_key.team_id, document_id)
 
 
 @router.get("/{project_id}/stats", response_model=StatsResponse)
@@ -122,7 +122,7 @@ async def test_document_signed_url(
     Replicates the logic used in the Chat Citation loop.
     """
     # 1. Fetch the document using your existing query service
-    doc = await query.get_document_by_id(session, document_id)
+    doc = await query.get_document_by_id(session, current_key.team_id, document_id)
     
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found in database")

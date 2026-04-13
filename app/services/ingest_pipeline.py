@@ -1,5 +1,6 @@
 # Purpose: Chunking, embedding, and indexing for documents stored in GCS (async ingest path).
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -48,10 +49,11 @@ async def process_uploaded_document(
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp_path = tmp.name
-        gcs.download_blob_to_path(gcs_path, tmp_path)
+        await asyncio.to_thread(gcs.download_blob_to_path, gcs_path, tmp_path)
 
-        text = rag_service.extract_text(tmp_path)
-        chunks = rag_service.chunk_text(
+        text = await asyncio.to_thread(rag_service.extract_text, tmp_path)
+        chunks = await asyncio.to_thread(
+            rag_service.chunk_text,
             text,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
