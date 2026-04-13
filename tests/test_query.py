@@ -132,6 +132,9 @@ def test_get_document_404_when_missing(mock_get_doc, app_client, fake_session, f
             headers={"Authorization": "Bearer sk-test"},
         )
     assert response.status_code == 404
+    args = mock_get_doc.await_args.args
+    assert args[1] == key.team_id
+    assert args[2] == document_id
 
 
 @patch("app.routers.query.query.get_document_by_id", new_callable=AsyncMock)
@@ -153,6 +156,9 @@ def test_get_document_200_when_found(mock_get_doc, app_client, fake_session, fak
         )
     assert response.status_code == 200
     assert response.json()["title"] == "doc.pdf"
+    args = mock_get_doc.await_args.args
+    assert args[1] == key.team_id
+    assert args[2] == doc.id
 
 
 def test_list_chunks_401_without_key(app_client):
@@ -182,6 +188,9 @@ def test_list_chunks_200_with_auth(mock_get_chunks, app_client, fake_session, fa
     data = response.json()
     assert len(data) == 1
     assert data[0]["content"] == "chunk content"
+    args = mock_get_chunks.await_args.args
+    assert args[1] == key.team_id
+    assert args[2] == document_id
 
 
 def test_delete_document_401_without_key(app_client):

@@ -192,14 +192,14 @@ async def get_project_documents(
 
 
 async def get_document_by_id(
-    session: AsyncSession, document_id: UUID
+    session: AsyncSession, team_id: UUID, document_id: UUID
 ) -> DocumentOut | None:
     """Retrieves a single document with chunk count and latest ingestion job."""
     chunk_count = _chunk_count_subquery()
     stmt = (
         select(Document, chunk_count)
         .options(selectinload(Document.ingestion_jobs))
-        .where(Document.id == document_id)
+        .where(Document.id == document_id, Document.team_id == team_id)
     )
     result = await session.execute(stmt)
     row = result.one_or_none()
@@ -209,11 +209,13 @@ async def get_document_by_id(
     return _document_out(doc, cnt)
 
 
-async def get_document_chunks(session: AsyncSession, document_id: UUID):
+async def get_document_chunks(session: AsyncSession, team_id: UUID, document_id: UUID):
     """Retrieves all chunks associated with a specific document."""
     result = await session.execute(
         select(DocumentChunk)
+        .join(Document, DocumentChunk.document_id == Document.id)
         .where(DocumentChunk.document_id == document_id)
+        .where(Document.team_id == team_id)
         .order_by(DocumentChunk.chunk_index)
     )
     return result.scalars().all()

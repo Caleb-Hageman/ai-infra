@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
+def _doc_timestamp(value: datetime | None) -> datetime:
+    return value or datetime.now(timezone.utc)
+
+
 async def _background_ingest(
     document_id: UUID,
     gcs_path: str,
@@ -204,8 +208,8 @@ async def complete_upload(
         status=doc.status,
         ingestion_progress_percent=0,
         chunk_count=0,
-        created_at=doc.created_at,
-        updated_at=doc.updated_at,
+        created_at=_doc_timestamp(doc.created_at),
+        updated_at=_doc_timestamp(doc.updated_at),
     )
 
 
@@ -317,8 +321,8 @@ async def upload_file_legacy(
         status=doc.status,
         ingestion_progress_percent=100,
         chunk_count=len(chunk_payload),
-        created_at=doc.created_at,
-        updated_at=doc.updated_at,
+        created_at=_doc_timestamp(doc.created_at),
+        updated_at=_doc_timestamp(doc.updated_at),
         latest_ingestion_job=IngestionJobOut.model_validate(job),
     )
 
