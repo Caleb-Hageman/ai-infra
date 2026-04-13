@@ -33,3 +33,29 @@ async def test_create_uploaded_document_adds_and_commits():
     session.add.assert_called_once()
     session.commit.assert_called_once()
     session.refresh.assert_called_once()
+
+
+async def test_create_uploaded_document_commit_false_flushes_without_commit():
+    async def mock_refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+
+    session = MagicMock()
+    session.commit = AsyncMock(return_value=None)
+    session.refresh = AsyncMock(side_effect=mock_refresh)
+    session.flush = AsyncMock(return_value=None)
+
+    team_id = uuid4()
+    project_id = uuid4()
+    await create_uploaded_document(
+        session=session,
+        team_id=team_id,
+        project_id=project_id,
+        filename="x.pdf",
+        gcs_path="t/p/x.pdf",
+        mime_type="application/pdf",
+        commit=False,
+    )
+
+    session.flush.assert_called_once()
+    session.commit.assert_not_called()
