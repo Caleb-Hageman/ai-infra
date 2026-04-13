@@ -224,10 +224,8 @@ class QueryCitation(Base):
 class ApiUsage(Base):
     __tablename__ = "api_usage"
 
-    #id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
 
     team_id = Column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, primary_key=True)
-    #api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
 
     # Usage metrics
     latency_ms = Column(Integer, nullable=True)
@@ -243,9 +241,7 @@ class ApiUsage(Base):
 
     # Relationships
     team = relationship("Team")
-    #api_key = relationship("ApiKey")
 
     __table_args__ = (
         Index("idx_api_usage_team_created", "team_id"),
-        #Index("idx_api_usage_api_key_created", "api_key_id", "created_at"),
     )
