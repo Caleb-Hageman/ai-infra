@@ -5,6 +5,7 @@ from fastapi.background import BackgroundTasks
 
 from app.services.usage import log_api_usage
 from app.db import async_session, get_session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import json
 import logging
