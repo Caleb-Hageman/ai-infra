@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from app.db import get_session
 from app.models import ApiUsage
 from sqlalchemy import case
