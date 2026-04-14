@@ -15,10 +15,12 @@ logger = logging.getLogger("app")
 
 
 class ApiUsageMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, 
-                             call_next, 
-                             session: AsyncSession = Depends(get_session)):
-        logger.info("hello")
+    
+    def __init__(self, app, session_provider):
+        super().__init__(app)
+        self.session_provider = session_provider
+
+    async def dispatch(self, request: Request, call_next): 
 
         start_time = time.time()
 
@@ -32,22 +34,14 @@ class ApiUsageMiddleware(BaseHTTPMiddleware):
         team_id = getattr(request.state, "team_id", None)
         api_key_id = getattr(request.state, "api_key_id", None)
 
-        logger.info(json.dumps({
-            "event": "api_usage",
-            "team_id": str(team_id),
-            "api_key_id": str(api_key_id),
-            "path": request.url.path,
-            "latency_ms": latency_ms,
-        }))
-
         background_tasks.add_task(
             log_api_usage,
-            session,
             team_id,
             api_key_id,
             request.url.path,
             start_time,
             latency_ms,
+            self.session_provider
         )
 
         response.background = background_tasks

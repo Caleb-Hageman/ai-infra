@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-
+from app.routers import metrics
 from app.auth import get_api_key
 from app.db import get_session
 from app.main import app
@@ -98,12 +98,40 @@ def mock_vllm_client(captured_prompt=None):
     client.__aexit__ = AsyncMock(return_value=None)
     return client
 
-
 @pytest.fixture
 def app_client():
-    """TestClient for the FastAPI app. Use override_deps() to inject mocks."""
+    """TestClient for the FastAPI app with test middleware."""
+
+    # 1. Remove existing middleware
+    app.user_middleware.clear()
+    app.middleware_stack = None  #force rebuild
+
+    mock_session = MagicMock()
+    proj = MagicMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = proj
+    mock_session.commit = AsyncMock(return_value=None)    
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    async def fake_get_session():
+        yield mock_session
+
+    # 2. Add test version
+    app.add_middleware(
+        metrics.ApiUsageMiddleware,
+        session_provider=fake_get_session,
+    )
+
+    # 3. Create client AFTER middleware change
     with TestClient(app) as client:
         yield client
+#@pytest.fixture
+#def app_client():
+#    """TestClient for the FastAPI app. Use override_deps() to inject mocks."""
+#    with TestClient(app) as client:
+#        yield client
+#
+
 
 
 @pytest.fixture(autouse=True)
