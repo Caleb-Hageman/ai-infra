@@ -1,5 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_session
+from sqlalchemy.exc import IntegrityError
+#from app.db import get_session
+from uuid import UUID
 from app.models import ApiUsage
 from sqlalchemy import case
 from sqlalchemy.dialects.postgresql import insert
@@ -11,7 +13,7 @@ logger = logging.getLogger("app")
 
 rate_tab = {}
 
-FEATURE_MAP = {"chat" : "chat_count", "ingest" : "ingest_count", "query" : "query_count", "team" : "team_count"}
+FEATURE_MAP = {"api" : "chat_count", "ingest" : "ingest_count", "query" : "query_count", "team" : "team_count"}
 
 def extract_feature(path: str):
     logger.info("FEATURE_MAP %s", FEATURE_MAP)
@@ -48,16 +50,19 @@ def update_rate(team_id, current_time, tau=10.0):
     return new_rate
 
 async def log_api_usage(
+    #db : AsyncSession,
     team_id,
     api_key_id,
     endpoint,
     start_time,
     latency_ms,
+    session_provider,
 ):
-    logger.info("hello from log_api_usage")
-    
+   
     feature = extract_feature(endpoint)
     rate_cur = update_rate(team_id, start_time)
+    if team_id is None:
+        return
     
     # Build initial insert
     insert_values = {
@@ -92,6 +97,17 @@ async def log_api_usage(
         set_=update_dict,
     )
 
-    async for session in get_session():
+    async for session in session_provider():
         await session.execute(stmt)
         await session.commit()
+
+#    try:
+#        db.execute(stmt)
+#        db.commit()
+#    except IntegrityError:
+#        await db.rollback()
+#        raise
+#
+#    async for session in get_session():
+#        await session.execute(stmt)
+#        await session.commit()

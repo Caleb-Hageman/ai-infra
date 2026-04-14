@@ -1,13 +1,12 @@
 from fastapi import FastAPI, HTTPException
-
+from app.db import get_session
 from .routers import chat, ingest, query, teams, metrics
 
 from . import warmup as warmup_mod
 
-
 app = FastAPI()
 
-app.add_middleware(metrics.ApiUsageMiddleware)
+app.add_middleware(metrics.ApiUsageMiddleware, session_provider=get_session)
 
 app.include_router(teams.router)
 app.include_router(ingest.router)
