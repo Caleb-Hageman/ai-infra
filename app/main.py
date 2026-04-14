@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 
 from .routers import chat, ingest, query, teams, metrics
+
 from . import warmup as warmup_mod
 
 app = FastAPI()
