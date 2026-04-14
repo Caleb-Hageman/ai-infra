@@ -17,11 +17,12 @@ from app.config import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     EMBEDDING_DIM,
+    EMBEDDING_MODEL,
     SIGNED_PUT_EXPIRATION_MINUTES,
 )
 from app.db import async_session, get_session
-from app.models import ApiKey, Document, DocumentChunk, DocumentStatus, IngestionJob, Project, UploadSession
-from app.schemas.document import DocumentOut, InitUploadRequest, InitUploadResponse
+from app.models import ApiKey, Document, DocumentChunk, DocumentStatus, IngestionJob, IngestionStatus, Project, UploadSession
+from app.schemas.document import DocumentOut, IngestionJobOut, InitUploadRequest, InitUploadResponse
 from app.services import gcs
 from app.services.document import create_uploaded_document
 from app.services.ingest_pipeline import process_uploaded_document
@@ -193,7 +194,19 @@ async def complete_upload(
 
     response.headers["X-Document-Id"] = str(doc.id)
     response.headers["X-Upload-Session-Id"] = str(session_id)
-    return doc
+    return DocumentOut(
+        id=doc.id,
+        team_id=doc.team_id,
+        project_id=doc.project_id,
+        title=doc.title,
+        source_type=doc.source_type,
+        gcs_uri=doc.gcs_uri,
+        status=doc.status,
+        ingestion_progress_percent=0,
+        chunk_count=0,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+    )
 
 
 @router.post("/{project_id}/upload", response_model=DocumentOut, status_code=201)
@@ -243,6 +256,8 @@ async def upload_file_legacy(
         tmp.write(file.file.read())
         tmp_path = tmp.name
 
+    ingest_started_at = datetime.now(timezone.utc)
+    chunks = []
     try:
         text = rag_service.extract_text(tmp_path)
         chunks = rag_service.chunk_text(
@@ -260,20 +275,52 @@ async def upload_file_legacy(
         await insert_document_chunks(
             session, document_id=doc.id, chunks=chunk_payload, commit=False
         )
-        session.add(IngestionJob(document_id=doc.id, chunks_created=len(chunk_payload)))
+        job = IngestionJob(
+            document_id=doc.id,
+            status=IngestionStatus.succeeded,
+            started_at=ingest_started_at,
+            finished_at=datetime.now(timezone.utc),
+            chunks_created=len(chunk_payload),
+            total_chunks=len(chunk_payload),
+            embedding_model=EMBEDDING_MODEL,
+        )
+        session.add(job)
         doc.status = DocumentStatus.ready
         await session.commit()
         await session.refresh(doc)
+        await session.refresh(job)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         doc.status = DocumentStatus.failed
+        session.add(IngestionJob(
+            document_id=doc.id,
+            status=IngestionStatus.failed,
+            started_at=ingest_started_at,
+            finished_at=datetime.now(timezone.utc),
+            error_message=str(e),
+            total_chunks=len(chunks) or None,
+            embedding_model=EMBEDDING_MODEL,
+        ))
         await session.commit()
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}") from e
     finally:
         os.unlink(tmp_path)
 
-    return doc
+    return DocumentOut(
+        id=doc.id,
+        team_id=doc.team_id,
+        project_id=doc.project_id,
+        title=doc.title,
+        source_type=doc.source_type,
+        gcs_uri=doc.gcs_uri,
+        status=doc.status,
+        ingestion_progress_percent=100,
+        chunk_count=len(chunk_payload),
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        latest_ingestion_job=IngestionJobOut.model_validate(job),
+    )
 
 
 @router.post("/{project_id}/repair-embeddings", status_code=200)

@@ -157,6 +157,7 @@ class IngestionJob(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     chunks_created = Column(Integer, nullable=True)
+    total_chunks = Column(Integer, nullable=True)
     embedding_model = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=text("now()"))
 

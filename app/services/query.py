@@ -1,9 +1,11 @@
 from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import EMBEDDING_DIM
-from app.models import Document, DocumentChunk
+from app.models import Document, DocumentChunk, DocumentStatus
+from app.schemas.document import DocumentOut, IngestionJobOut
 from app.schemas.query import ChunkMatch
 from app.services.rag import rag_service
 
@@ -129,19 +131,82 @@ async def execute_similarity_search_for_source(
     ]
 
 
-async def get_project_documents(session: AsyncSession, team_id: UUID, project_id: UUID):
-    """Retrieves all documents for a specific project."""
-    result = await session.execute(
-        select(Document).where(
-            Document.team_id == team_id, Document.project_id == project_id
-        )
+def _chunk_count_subquery():
+    return (
+        select(func.count(DocumentChunk.id))
+        .where(DocumentChunk.document_id == Document.id)
+        .correlate(Document)
+        .scalar_subquery()
+        .label("chunk_count")
     )
-    return result.scalars().all()
 
 
-async def get_document_by_id(session: AsyncSession, document_id: UUID):
-    """Retrieves a single document by its ID."""
-    return await session.get(Document, document_id)
+def _ingestion_progress_percent(doc: Document, job: IngestionJobOut | None) -> int:
+    if doc.status == DocumentStatus.ready:
+        return 100
+    if not job or not job.total_chunks or job.total_chunks <= 0:
+        return 0
+    done = min(job.chunks_created or 0, job.total_chunks)
+    if done >= job.total_chunks:
+        return 100
+    return int((done * 100) / job.total_chunks)
+
+
+def _latest_ingestion_job(doc: Document) -> IngestionJobOut | None:
+    if not doc.ingestion_jobs:
+        return None
+    job = max(doc.ingestion_jobs, key=lambda item: item.created_at)
+    return IngestionJobOut.model_validate(job)
+
+
+def _document_out(doc: Document, chunk_count: int) -> DocumentOut:
+    latest_job = _latest_ingestion_job(doc)
+    return DocumentOut(
+        id=doc.id,
+        team_id=doc.team_id,
+        project_id=doc.project_id,
+        title=doc.title,
+        source_type=doc.source_type,
+        gcs_uri=doc.gcs_uri,
+        status=doc.status,
+        ingestion_progress_percent=_ingestion_progress_percent(doc, latest_job),
+        chunk_count=chunk_count,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        latest_ingestion_job=latest_job,
+    )
+
+
+async def get_project_documents(
+    session: AsyncSession, team_id: UUID, project_id: UUID
+) -> list[DocumentOut]:
+    """Retrieves all documents for a project with chunk counts and latest ingestion job."""
+    chunk_count = _chunk_count_subquery()
+    stmt = (
+        select(Document, chunk_count)
+        .options(selectinload(Document.ingestion_jobs))
+        .where(Document.team_id == team_id, Document.project_id == project_id)
+    )
+    result = await session.execute(stmt)
+    return [_document_out(doc, cnt) for doc, cnt in result.all()]
+
+
+async def get_document_by_id(
+    session: AsyncSession, document_id: UUID
+) -> DocumentOut | None:
+    """Retrieves a single document with chunk count and latest ingestion job."""
+    chunk_count = _chunk_count_subquery()
+    stmt = (
+        select(Document, chunk_count)
+        .options(selectinload(Document.ingestion_jobs))
+        .where(Document.id == document_id)
+    )
+    result = await session.execute(stmt)
+    row = result.one_or_none()
+    if not row:
+        return None
+    doc, cnt = row
+    return _document_out(doc, cnt)
 
 
 async def get_document_chunks(session: AsyncSession, document_id: UUID):

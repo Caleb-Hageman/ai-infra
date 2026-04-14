@@ -1,10 +1,13 @@
 # Purpose: Query service unit tests (execute_similarity_search with mocked session).
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from app.config import EMBEDDING_DIM
+from app.models import DocumentStatus, IngestionStatus
 from app.services.query import (
+    _document_out,
     execute_similarity_search,
     execute_similarity_search_for_source,
     execute_similarity_search_for_team,
@@ -86,3 +89,75 @@ async def test_execute_similarity_search_for_source_returns_matches(mock_ensure,
     assert len(matches) == 1
     assert matches[0].content == "source chunk"
     session.execute.assert_called_once()
+
+
+def _fake_doc_for_progress(**kwargs):
+    now = datetime.now(timezone.utc)
+    defaults = {
+        "id": uuid4(),
+        "team_id": uuid4(),
+        "project_id": uuid4(),
+        "title": "doc.txt",
+        "source_type": "upload",
+        "gcs_uri": "gs://bucket/doc.txt",
+        "status": DocumentStatus.processing,
+        "created_at": now,
+        "updated_at": now,
+        "ingestion_jobs": [],
+    }
+    defaults.update(kwargs)
+    return type("Document", (), defaults)()
+
+
+def _fake_job(**kwargs):
+    now = datetime.now(timezone.utc)
+    defaults = {
+        "id": uuid4(),
+        "status": IngestionStatus.running,
+        "error_message": None,
+        "started_at": now,
+        "finished_at": None,
+        "chunks_created": 0,
+        "total_chunks": None,
+        "embedding_model": "text-embedding",
+        "created_at": now,
+    }
+    defaults.update(kwargs)
+    return type("IngestionJob", (), defaults)()
+
+
+def test_build_document_out_reports_processing_progress():
+    job = _fake_job(
+        status=IngestionStatus.running,
+        chunks_created=2,
+        total_chunks=4,
+    )
+    doc = _fake_doc_for_progress(ingestion_jobs=[job])
+
+    result = _document_out(doc, chunk_count=2)
+
+    assert result.ingestion_progress_percent == 50
+    assert result.chunk_count == 2
+    assert result.latest_ingestion_job is not None
+    assert result.latest_ingestion_job.status == "running"
+
+
+def test_build_document_out_reports_ready_progress():
+    finished_at = datetime.now(timezone.utc)
+    job = _fake_job(
+        status=IngestionStatus.succeeded,
+        finished_at=finished_at,
+        chunks_created=3,
+        total_chunks=3,
+    )
+    doc = _fake_doc_for_progress(
+        status=DocumentStatus.ready,
+        ingestion_jobs=[job],
+    )
+
+    result = _document_out(doc, chunk_count=3)
+
+    assert result.ingestion_progress_percent == 100
+    assert result.chunk_count == 3
+    assert result.latest_ingestion_job is not None
+    assert result.latest_ingestion_job.status == "succeeded"

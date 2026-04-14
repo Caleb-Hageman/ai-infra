@@ -91,6 +91,7 @@ def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
     key = fake_api_key()
     project_id = uuid4()
     session_id = uuid4()
+    now = datetime.now(timezone.utc)
 
     async def fake_get_api_key():
         return key
@@ -105,10 +106,18 @@ def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_us
 
+    async def _refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+        if hasattr(obj, "created_at") and getattr(obj, "created_at", None) is None:
+            obj.created_at = now
+        if hasattr(obj, "updated_at") and getattr(obj, "updated_at", None) is None:
+            obj.updated_at = now
+
     mock_session = MagicMock()
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.commit = AsyncMock(return_value=None)
-    mock_session.refresh = AsyncMock()
+    mock_session.refresh = AsyncMock(side_effect=_refresh)
 
     doc = Document(
         id=uuid4(),
@@ -137,7 +146,11 @@ def test_complete_upload_202(mock_verify, mock_bg, app_client, fake_api_key):
             headers={"Authorization": "Bearer sk-test"},
         )
     assert response.status_code == 202
-    assert response.json()["status"] == "processing"
+    data = response.json()
+    assert data["status"] == "processing"
+    assert data["ingestion_progress_percent"] == 0
+    assert data["chunk_count"] == 0
+    assert data["latest_ingestion_job"] is None
     assert response.headers.get("X-Document-Id") == str(doc.id)
     assert response.headers.get("X-Upload-Session-Id") == str(session_id)
     mock_verify.assert_called_once_with("t/p/f.txt")
@@ -170,9 +183,18 @@ def test_legacy_multipart_upload_201(
 
     key = fake_api_key()
     project_id = uuid4()
+    now = datetime.now(timezone.utc)
 
     async def fake_get_api_key():
         return key
+
+    async def _refresh(obj):
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid4()
+        if hasattr(obj, "created_at") and getattr(obj, "created_at", None) is None:
+            obj.created_at = now
+        if hasattr(obj, "updated_at") and getattr(obj, "updated_at", None) is None:
+            obj.updated_at = now
 
     mock_proj = MagicMock()
     mock_result = MagicMock()
@@ -181,7 +203,7 @@ def test_legacy_multipart_upload_201(
     mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock(return_value=None)
-    mock_session.refresh = AsyncMock()
+    mock_session.refresh = AsyncMock(side_effect=_refresh)
 
     doc = Document(
         id=uuid4(),
@@ -211,6 +233,13 @@ def test_legacy_multipart_upload_201(
             headers={"Authorization": "Bearer sk-test"},
         )
     assert response.status_code == 201
-    assert response.json()["status"] == "ready"
+    data = response.json()
+    assert data["status"] == "ready"
+    assert data["ingestion_progress_percent"] == 100
+    assert data["chunk_count"] == 1
+    assert data["latest_ingestion_job"] is not None
+    assert data["latest_ingestion_job"]["status"] == "succeeded"
+    assert data["latest_ingestion_job"]["chunks_created"] == 1
+    assert data["latest_ingestion_job"]["total_chunks"] == 1
     mock_gcs_stream.assert_called_once()
     mock_insert_chunks.assert_called_once()
