@@ -48,6 +48,7 @@ def update_rate(team_id, current_time, tau=10.0):
     return new_rate
 
 async def log_api_usage(
+    db : AsyncSession,
     team_id,
     api_key_id,
     endpoint,
@@ -92,6 +93,13 @@ async def log_api_usage(
         set_=update_dict,
     )
 
-    async for session in get_session():
-        await session.execute(stmt)
-        await session.commit()
+    try:
+        db.execute(stmt)
+        db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise
+#
+#    async for session in get_session():
+#        await session.execute(stmt)
+#        await session.commit()

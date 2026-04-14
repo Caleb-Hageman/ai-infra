@@ -14,7 +14,9 @@ logger = logging.getLogger("app")
 
 
 class ApiUsageMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, 
+                             call_next, 
+                             session: AsyncSession = Depends(get_session)):
         logger.info("hello")
 
         start_time = time.time()
@@ -39,6 +41,7 @@ class ApiUsageMiddleware(BaseHTTPMiddleware):
 
         background_tasks.add_task(
             log_api_usage,
+            session,
             team_id,
             api_key_id,
             request.url.path,
