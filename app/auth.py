@@ -1,6 +1,6 @@
 import hashlib
 import os
-from fastapi import Depends, HTTPException, Security
+from fastapi import Request, Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ ADMIN_ID = UUID(os.getenv("ADMIN_TEAM_ID", "00000000-0000-0000-0000-000000000000
 bearer_scheme = HTTPBearer()
 
 async def get_api_key(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
     session: AsyncSession = Depends(get_session),
 ) -> ApiKey:
@@ -29,8 +30,11 @@ async def get_api_key(
         )
     )
     api_key = result.scalar_one_or_none()
-
+    
     if not api_key:
         raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+
+    request.state.api_key_id = api_key.id
+    request.state.team_id = api_key.team_id
 
     return api_key
