@@ -1,7 +1,7 @@
 """add total_chunks to ingestion_jobs
 
 Revision ID: b7c8d9e0f1a2
-Revises: a1b2c3d4e5f6
+Revises: 62df52214b09
 Create Date: 2026-04-13
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "b7c8d9e0f1a2"
-down_revision: Union[str, None] = "a1b2c3d4e5f6"
+down_revision: Union[str, None] = "62df52214b09"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
