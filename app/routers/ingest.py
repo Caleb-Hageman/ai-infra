@@ -25,7 +25,7 @@ from app.models import ApiKey, Document, DocumentChunk, DocumentStatus, Ingestio
 from app.schemas.document import DocumentOut, IngestionJobOut, InitUploadRequest, InitUploadResponse
 from app.services import gcs
 from app.services.document import create_uploaded_document
-from app.services.ingest_pipeline import process_uploaded_document
+from app.services.ingest_pipeline import process_uploaded_document, utc_naive_now
 from app.services.insert import insert_document_chunks
 from app.services.rag import rag_service
 
@@ -256,7 +256,7 @@ async def upload_file_legacy(
         tmp.write(file.file.read())
         tmp_path = tmp.name
 
-    ingest_started_at = datetime.now(timezone.utc)
+    ingest_started_at = utc_naive_now()
     chunks = []
     try:
         text = rag_service.extract_text(tmp_path)
@@ -279,7 +279,7 @@ async def upload_file_legacy(
             document_id=doc.id,
             status=IngestionStatus.succeeded,
             started_at=ingest_started_at,
-            finished_at=datetime.now(timezone.utc),
+            finished_at=utc_naive_now(),
             chunks_created=len(chunk_payload),
             total_chunks=len(chunk_payload),
             embedding_model=EMBEDDING_MODEL,
@@ -297,7 +297,7 @@ async def upload_file_legacy(
             document_id=doc.id,
             status=IngestionStatus.failed,
             started_at=ingest_started_at,
-            finished_at=datetime.now(timezone.utc),
+            finished_at=utc_naive_now(),
             error_message=str(e),
             total_chunks=len(chunks) or None,
             embedding_model=EMBEDDING_MODEL,
