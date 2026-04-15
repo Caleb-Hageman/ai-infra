@@ -18,6 +18,11 @@ from app.services.rag import rag_service
 logger = logging.getLogger(__name__)
 
 
+def utc_naive_now() -> datetime:
+    """UTC wall time as naive datetime for DateTime columns without timezone=True (asyncpg-safe)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 async def process_uploaded_document(
     session: AsyncSession,
     *,
@@ -37,7 +42,7 @@ async def process_uploaded_document(
     job = IngestionJob(
         document_id=document_id,
         status=IngestionStatus.running,
-        started_at=datetime.now(timezone.utc),
+        started_at=utc_naive_now(),
         embedding_model=EMBEDDING_MODEL,
     )
     session.add(job)
@@ -79,7 +84,7 @@ async def process_uploaded_document(
             await session.commit()
 
         job.status = IngestionStatus.succeeded
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = utc_naive_now()
         doc.status = DocumentStatus.ready
         await session.commit()
     except ValueError as e:
@@ -107,6 +112,6 @@ async def _mark_failed(
         doc.status = DocumentStatus.failed
     if job:
         job.status = IngestionStatus.failed
-        job.finished_at = datetime.now(timezone.utc)
+        job.finished_at = utc_naive_now()
         job.error_message = error_message
     await session.commit()

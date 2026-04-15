@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -208,7 +208,7 @@ async def revoke_api_key(
         raise HTTPException(400, "API key already revoked")
 
     api_key.status = ApiKeyStatus.revoked
-    api_key.revoked_at = datetime.utcnow()
+    api_key.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.commit()
     await session.refresh(api_key)
     return api_key
