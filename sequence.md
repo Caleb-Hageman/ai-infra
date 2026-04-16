@@ -2,13 +2,17 @@
     sequenceDiagram
     participant FE as Frontend (Product Team)
     participant API as FastAPI (Cloud Run)
+    participant Redis as Redis (Rate Limiter)
     participant DB as PostgreSQL + PGVector (e2-micro)
     participant GCS as Google Cloud Storage
     participant GPU as vLLM (Cloud Run GPU)
 
     FE->>API: POST /chat (Prompt + API_Key)
 
-    alt Over Limit (Local Cache)
+    API->>Redis: INCR + EXPIRE (Key: API_Key)
+    Redis-->>API: Current Request Count
+
+    alt Count > Threshold
         API-->>FE: 429 Too Many Requests
     else Within Limit
         
