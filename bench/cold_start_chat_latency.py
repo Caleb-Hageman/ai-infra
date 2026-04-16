@@ -216,9 +216,11 @@ def format_report_md(
     server_timeout_label: str,
     started_at_utc: datetime,
     finished_at_utc: datetime,
+    report_title: str = "Cold-start chat latency",
+    trial_mode: str = "cold",
 ) -> str:
     lines: list[str] = []
-    lines.append("# Cold-start chat latency")
+    lines.append(f"# {report_title}")
     lines.append("")
     lines.append("## Context")
     lines.append("")
@@ -275,9 +277,16 @@ def format_report_md(
         + ", ".join(str(x) for x in sorted(RETRYABLE_STATUS))
         + " count toward the same trial total; each attempt is summed."
     )
-    lines.append(
-        "- **Warmup:** do not call `GET /warmup` before a cold trial (defeats cold start)."
-    )
+    if trial_mode == "warm":
+        lines.append(
+            "- **Warmup:** warm-path trials use short cooldown between requests; "
+            "not a scale-to-zero cold measurement."
+        )
+    else:
+        lines.append(
+            "- **Warmup:** do not call `GET /warmup` before a cold trial "
+            "(defeats cold start)."
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -367,7 +376,10 @@ def main() -> None:
     parser.add_argument(
         "--output",
         default=None,
-        help="Report path (default: demo_artifacts/<timestamp>/cold_start_report.md)",
+        help=(
+            "Report path (default: demo_artifacts/<timestamp>/cold_start_report.md "
+            "or warm_start_report.md when --warm)"
+        ),
     )
     parser.add_argument(
         "--vm-label",
@@ -449,7 +461,11 @@ def main() -> None:
         stamp = started.strftime("%Y-%m-%dT%H-%M-%SZ")
         out_dir = os.path.join("demo_artifacts", stamp)
         os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, "cold_start_report.md")
+        fname = "warm_start_report.md" if args.warm else "cold_start_report.md"
+        out_path = os.path.join(out_dir, fname)
+
+    report_title = "Warm-start chat latency" if args.warm else "Cold-start chat latency"
+    trial_mode = "warm" if args.warm else "cold"
 
     report = format_report_md(
         trials=records,
@@ -459,6 +475,8 @@ def main() -> None:
         server_timeout_label=args.server_timeout_label,
         started_at_utc=started,
         finished_at_utc=finished,
+        report_title=report_title,
+        trial_mode=trial_mode,
     )
     out_parent = os.path.dirname(os.path.abspath(out_path))
     if out_parent:

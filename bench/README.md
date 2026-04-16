@@ -22,6 +22,13 @@ Optional: `export SERVER_TIMEOUT_LABEL="Cloud Run 300s"` (cold start footer).
 uv run python -m bench.cold_start_chat_latency
 ```
 
+**1b. Warm start chat** (short cooldown between trials; report `warm_start_report.md`)
+
+```bash
+./scripts/warm_start_chat_latency.sh --trials 20
+# or: uv run python -m bench.cold_start_chat_latency --warm --trials 20
+```
+
 ---
 
 **2. MRR**
@@ -39,6 +46,17 @@ uv run python -m bench.mrr_retrieval
 ```bash
 uv run python -m bench.upload_latency
 ```
+
+---
+
+**4. Query retrieval latency** (`POST /query/{project_id}` — embeddings + vector search only, no LLM chat)
+
+```bash
+./scripts/query_retrieval_latency.sh --trials 30
+# or: uv run python -m bench.query_retrieval_latency --trials 30
+```
+
+Uses `BASE`, `API_KEY`, and `PROJECT_ID`. Optional: `QUERY_TEXT`, `TOP_K`, `QUERY_SOURCE` (exact source filename filter).
 
 ---
 

@@ -116,6 +116,41 @@ def test_format_report_md_contains_table_and_definitions():
     assert "---" in md
 
 
+def test_format_report_md_warm_title_and_footer():
+    from bench.cold_start_chat_latency import TrialRecord
+
+    from datetime import datetime, timezone
+
+    t1 = TrialRecord(
+        trial_index=1,
+        success=True,
+        total_ms=100.0,
+        attempts=1,
+        attempt_details=[],
+    )
+    started = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
+    finished = datetime(2026, 3, 31, 12, 1, 0, tzinfo=timezone.utc)
+    md = format_report_md(
+        trials=[t1],
+        base_url="https://api.example.com",
+        context_lines=[],
+        client_timeout_sec=60.0,
+        server_timeout_label="x",
+        started_at_utc=started,
+        finished_at_utc=finished,
+        report_title="Warm-start chat latency",
+        trial_mode="warm",
+    )
+    assert "# Warm-start chat latency" in md
+    assert "short cooldown" in md
+    assert "**Mean total latency" in md
+    assert "| Trial | Total ms |" in md
+    assert "| 1 | 100.0 |" in md
+    assert "## Definitions" in md
+    assert "60" in md
+    assert "---" in md
+
+
 def test_build_body_project_id_string_in_json():
     import uuid
 
