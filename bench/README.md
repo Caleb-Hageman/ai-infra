@@ -12,7 +12,7 @@ export API_KEY="YOUR_KEY"
 export PROJECT_ID="YOUR_PROJECT_UUID"
 ```
 
-Optional: `export SERVER_TIMEOUT_LABEL="Cloud Run 300s"` (cold start footer).
+Optional: `export SERVER_TIMEOUT_LABEL="Cloud Run 300s"` (cold start report footer).
 
 ---
 
@@ -22,18 +22,9 @@ Optional: `export SERVER_TIMEOUT_LABEL="Cloud Run 300s"` (cold start footer).
 uv run python -m bench.cold_start_chat_latency
 ```
 
-**1b. Warm start chat** (short cooldown between trials; report `warm_start_report.md`)
-
-```bash
-./scripts/warm_start_chat_latency.sh --trials 20
-# or: uv run python -m bench.cold_start_chat_latency --warm --trials 20
-```
-
 ---
 
-**2. MRR**
-
-MODE=`live` only: samples real chunks from the query API, builds queries from chunk text, scores RR vs gold chunk id.
+**2. MRR (live indexed chunks)**
 
 ```bash
 uv run python -m bench.mrr_retrieval
@@ -49,14 +40,13 @@ uv run python -m bench.upload_latency
 
 ---
 
-**4. Query retrieval latency** (`POST /query/{project_id}` — embeddings + vector search only, no LLM chat)
+**4. Query retrieval latency**
+
+`POST /query/{project_id}` only (embedding + vector search, no LLM). Writes `query_retrieval_report.md`.
 
 ```bash
-./scripts/query_retrieval_latency.sh --trials 30
-# or: uv run python -m bench.query_retrieval_latency --trials 30
+uv run python -m bench.query_retrieval_latency
 ```
-
-Uses `BASE`, `API_KEY`, and `PROJECT_ID`. Optional: `QUERY_TEXT`, `TOP_K`, `QUERY_SOURCE` (exact source filename filter).
 
 ---
 

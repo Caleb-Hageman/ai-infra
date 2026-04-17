@@ -8,6 +8,7 @@ import httpx
 from bench.mrr_retrieval import (
     EvalItem,
     RowOutcome,
+    _skip_audit_doc_title,
     build_eval_items,
     collect_chunks_live_from_api,
     format_report_md,
@@ -26,6 +27,12 @@ def test_rank_and_rr():
     rank, rr = rank_and_rr(results, b)
     assert rank == 2
     assert rr == 0.5
+
+
+def test_skip_audit_doc_title():
+    assert _skip_audit_doc_title("audit_results.txt")
+    assert _skip_audit_doc_title("uploads/audit_results.txt")
+    assert not _skip_audit_doc_title("report.pdf")
 
 
 def test_build_eval_items():
@@ -78,6 +85,65 @@ def test_collect_chunks_live_from_api_mock():
         )
     assert len(flat) == 1
     assert uuid.UUID(str(flat[0]["id"])) == ch_id
+
+
+def test_collect_chunks_skips_audit_doc():
+    doc_audit = uuid.uuid4()
+    doc_good = uuid.uuid4()
+    ch_audit = uuid.uuid4()
+    ch_good = uuid.uuid4()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        p = request.url.path
+        if p == f"/query/{pid}/documents":
+            return httpx.Response(
+                200,
+                json=[
+                    {"id": str(doc_audit), "title": "audit_results.txt"},
+                    {"id": str(doc_good), "title": "report.pdf"},
+                ],
+            )
+        if "/documents/" in p and p.endswith("/chunks"):
+            did = p.split("documents/")[1].split("/")[0]
+            if did == str(doc_audit):
+                return httpx.Response(
+                    200,
+                    json=[
+                        {
+                            "id": str(ch_audit),
+                            "content": "audit line one",
+                            "document_id": str(doc_audit),
+                            "chunk_index": 0,
+                        }
+                    ],
+                )
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(ch_good),
+                        "content": "good line one",
+                        "document_id": str(doc_good),
+                        "chunk_index": 0,
+                    }
+                ],
+            )
+        return httpx.Response(404, json={"detail": "unexpected path"})
+
+    transport = httpx.MockTransport(handler)
+    pid = uuid.uuid4()
+    with httpx.Client(transport=transport, timeout=httpx.Timeout(10.0)) as client:
+        flat = collect_chunks_live_from_api(
+            base_url="http://example.test",
+            api_key="k",
+            project_id=pid,
+            max_documents=None,
+            collect_cap=100,
+            http_client=client,
+        )
+    assert len(flat) == 1
+    assert uuid.UUID(str(flat[0]["id"])) == ch_good
+    assert flat[0]["doc_title"] == "report.pdf"
 
 
 def test_run_eval_mock():

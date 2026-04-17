@@ -21,6 +21,7 @@ DEFAULT_CLIENT_TIMEOUT_SEC = 120.0
 DEFAULT_LIVE_MAX_CHUNKS = 20
 DEFAULT_LIVE_QUERY_CHARS = 240
 DEFAULT_LIVE_COLLECT_CAP = 5000
+DEFAULT_MRR_SKIP_DOC_SUBSTRING = "audit_results.txt"
 
 MODE_LIVE = "live"
 
@@ -45,6 +46,10 @@ def _query_from_chunk_text(content: str, max_chars: int) -> str:
     if len(q) > max_chars:
         q = q[:max_chars].rstrip()
     return q if q else "."
+
+
+def _skip_audit_doc_title(title: str) -> bool:
+    return DEFAULT_MRR_SKIP_DOC_SUBSTRING.lower() in title.lower()
 
 
 def collect_chunks_live_from_api(
@@ -73,6 +78,8 @@ def collect_chunks_live_from_api(
         if did is None:
             continue
         title = doc.get("title") or str(did)
+        if _skip_audit_doc_title(title):
+            continue
         ch_url = f"{base}/query/documents/{did}/chunks"
         rc = http_client.get(ch_url, headers=headers)
         rc.raise_for_status()
@@ -304,7 +311,9 @@ def format_report_md(
     lines.append("## Definitions")
     lines.append("")
     lines.append(f"- **top_k:** `{top_k}`.")
-    lines.append("- Gold chunk ids and query text from `GET /query/{project_id}/documents` and `GET /query/documents/{id}/chunks`.")
+    lines.append(
+        f"- Golds from indexed chunks except titles containing `{DEFAULT_MRR_SKIP_DOC_SUBSTRING}`."
+    )
     lines.append("- **RR:** 1/rank of the gold chunk in `POST /query/{project_id}` results; 0 if missing.")
     lines.append("- **MRR:** mean(RR) over sampled chunks.")
     if embedding_note.strip():
